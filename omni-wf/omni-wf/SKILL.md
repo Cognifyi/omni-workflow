@@ -37,17 +37,17 @@ triggers:
 | 完整执行 | 每个子阶段必须执行文档中列出的**所有**步骤 |
 | 产出物落盘 | 每个子阶段必须有明确的产出物（文档/记录/编号） |
 | 证据记录 | 每个阶段完成后必须在 state.md 中记录可验证的完成证据 |
-| 用户确认 | 每个阶段转换必须通过 AskUserQuestion 获得用户明确批准 |
-| 违规即停 | 发现任何偏差必须立即停止工作流，向用户报告，等待指示 |
+| 自验证推进 | 阶段转换由 Agent 自验证通过自动推进，无需人工确认 |
+| 违规即录 | 发现偏差先记录到 state.md，优先自动修正，仅严重阻塞时暂停 |
 | 条件即执行 | 文档中标注"若 XXX，必须 XXX"的条件，一旦触发必须执行 |
 
 ### 违规处理协议
 
 ```
-发现违规 → 立即停止工作流
-         → 向用户报告：具体违规行为、涉及的阶段/步骤、影响
-         → 等待用户明确指示（继续/回退/重新开始）
-         → 不得自行"修复"或"调整"后继续
+发现违规 → 记录到 state.md Notes（违规行为、涉及阶段、影响）
+         → 优先自动修正（回退到正确阶段、补齐遗漏产出物）
+         → 仅当无法自修正时，才暂停并向用户报告
+         → 修正后继续工作流，不得跳过或简化
 ```
 
 ---
@@ -262,13 +262,12 @@ SHIP (发布部署)
 
 1. **读取 `.omni-wf/state.md`**（如果存在）。提取 `Current Phase`、`Current Stage`、`Phase Completion Evidence`。
 2. **检查 `PHASE_SKIP_DETECTED`**：
-   - 若 `yes`：**立即停止工作流**，向用户报告检测到的跳过行为
-   - 要求用户明确指示如何处理（回退到缺失阶段 / 承认跳过并继续 / 重新开始）
+   - 若 `yes`：自动回退到被跳过的阶段起点，在 state.md 记录回退原因
+   - 从回退点继续完整执行，补齐所有遗漏产出物
 3. **若 `Current Phase` 不是 `IDLE`**：
-   - 向用户展示当前状态摘要 + 已完成阶段 + 未完成阶段
-   - 展示每个已完成阶段的证据摘要
-   - 问："是否从 `$_STAGE` 继续？" 或 "重新开始新工作流？"
-4. **若重新开始**：重置 `state.md` 为 IDLE，清空所有 `pending` 和 `evidence`。
+   - 自动恢复当前状态，展示状态摘要 + 已完成阶段 + 待完成阶段
+   - 从 `Current Stage` 自动继续执行
+4. **若用户明确要求重新开始**：重置 `state.md` 为 IDLE，清空所有 `pending` 和 `evidence`。
 
 ### state.md 初始化模板
 
@@ -324,7 +323,7 @@ None
 ## Notes
 ```
 
-**STOP.** 等待用户确认继续或重新开始。
+Agent 自验证通过后自动继续执行。
 
 ---
 
@@ -340,21 +339,19 @@ None
 □ state.md 中当前阶段的 Phase Completion Evidence 已记录
 □ 文档要求的 skill 调用已全部执行（无遗漏）
 □ 当前阶段无 Pending Decision 未解决
-□ 用户通过 AskUserQuestion 明确批准进入下一阶段
 ```
 
 ### 阶段转换协议
 
 ```
 1. Agent 自验证：对照文档检查当前阶段完成度
-2. 若发现遗漏：停止，向用户报告遗漏项，等待指示
-3. 若全部完成：向用户展示完成摘要 + 产出物列表 + 证据记录
-4. AskUserQuestion: "当前阶段已完成。是否进入 [下一阶段]？"
-5. 用户批准：更新 state.md（标记当前阶段完成，记录证据，设置下一阶段）
-6. 用户拒绝：停留在当前阶段，根据用户反馈调整
+2. 若发现遗漏：记录到 state.md，自动回退到遗漏点补齐
+3. 若全部完成：记录完成摘要 + 产出物列表 + 证据记录到 state.md
+4. 自动推进：更新 state.md（标记当前阶段完成，记录证据，设置下一阶段）
+5. 进入下一阶段，继续执行
 ```
 
-**严禁**：未经用户批准擅自进入下一阶段。
+**严禁**：未经自验证擅自进入下一阶段。
 
 ---
 
@@ -402,7 +399,7 @@ None
 
 2. **更新决策索引**：更新 `docs/decisions/README.md`
 
-**STOP.** 展示 office-hours 结论摘要 + 决策列表。询问用户是否进入 CEO Review。
+自动记录 office-hours 结论到 state.md，继续执行 CEO Review。
 
 ---
 
@@ -422,7 +419,7 @@ None
 1. **决策落盘**：`docs/decisions/DECISION-NNN-ceo-review-{short-title}.md`
 2. **更新决策索引**
 
-**STOP.** 展示 CEO Review 结论 + 战略决策。询问用户是否进入 Eng Review。
+自动记录 CEO Review 结论到 state.md，继续执行 Eng Review。
 
 ---
 
@@ -467,7 +464,7 @@ None
 
 3. **更新决策索引**
 
-**STOP.** 展示 Eng Review 结论 + 架构决策 + 技术规格摘要。询问用户是否进入 Design Review。
+自动记录 Eng Review 结论到 state.md，继续执行 Design Review。
 
 ---
 
@@ -492,7 +489,7 @@ None
 - 记录 "Design Review skipped: no frontend changes detected"
 - 仍需记录到 state.md 的 INCEPTION Evidence 中
 
-**STOP.** 展示 Design Review 结论。询问用户是否进入 PRD Finalization。
+自动记录 Design Review 结论到 state.md，继续执行 PRD Finalization。
 
 ---
 
@@ -548,7 +545,7 @@ None
 
 2. **更新 state.md**：PRDs 列表追加
 
-**STOP.** 展示 PRD 摘要。询问用户是否完成 INCEPTION 并进入 CONSTRUCTION。
+自动记录 PRD 摘要到 state.md，标记 INCEPTION 完成，进入 CONSTRUCTION。
 
 ---
 
@@ -621,7 +618,7 @@ EOF
 
 2. **记录 Issue 编号**：保存到 state.md
 
-**STOP.** 展示 Issue 列表和依赖图。询问用户是否进入 TDD 编码。
+自动记录 Issue 列表到 state.md，继续执行 TDD 编码。
 
 ---
 
@@ -673,7 +670,7 @@ EOF
 
 **严禁**：在 RED 状态重构。
 
-**STOP.** 展示当前 Issue 的 TDD 进度。继续下一个测试或进入 Review。
+记录当前 Issue 的 TDD 进度到 state.md。继续下一个测试或自动进入 Review。
 
 ---
 
@@ -758,7 +755,7 @@ gh issue close NNN --comment "Completed via omni-wf CONSTRUCTION phase. Review: 
 
 **当所有 Issue 关闭**：
 - 展示构建摘要 + 所有 review 记录
-- **STOP.** 展示验证清单，询问用户是否进入 TEST。
+- 自动记录验证清单到 state.md，标记 CONSTRUCTION 完成，进入 TEST。
 
 ---
 
@@ -828,10 +825,10 @@ fi
   - Design audit: [PASS / N/A]
   - Security audit: [PASS / N/A]
   - Bug investigations: [N]
-- User Confirmation: [待确认]
+- Auto Advance: true
 ```
 
-**STOP.** 展示验证报告 + 证据 + 验证清单，询问用户是否进入 SHIP。
+自动记录验证报告到 state.md，标记 TEST 完成，进入 SHIP。
 
 ---
 
@@ -999,16 +996,16 @@ fi
 
 | 场景 | 恢复策略 |
 |------|---------|
-| 子技能失败 | 记录失败原因到 state.md，**停止工作流**，询问用户重试/跳过/调整 |
+| 子技能失败 | 记录失败原因到 state.md，自动重试一次，仍失败则降级为本地文档继续 |
 | 测试失败 | `/investigate` → 修复 → 回归测试 |
 | 用户打断 | 保存当前 state.md，标记 `INTERRUPTED`，支持 `/context-save` 后恢复 |
-| 依赖缺失 | 询问用户安装，**不得在未安装的情况下继续** |
+| 依赖缺失 | 自动尝试安装（如 `bun install`），失败则记录到 state.md 并降级 |
 | 无 git 仓库 | 降级为纯文档工作流，跳过 git 相关阶段 |
-| gh CLI 未登录 | 提示 `gh auth login`，或降级为本地 Issue 跟踪（临时） |
+| gh CLI 未登录 | 降级为本地 Issue 跟踪（临时文件），记录到 state.md |
 | GitHub Issue 创建失败 | 降级为本地 Issue 文件（临时保存），待修复后迁移 |
-| 合并冲突 | 暂停 → 询问用户手动解决 → 恢复 |
-| Agent 跳过阶段 | **立即停止**，报告违规，等待用户指示 |
-| 阶段转换门未通过 | **停止**，向用户展示未通过的检查项，等待指示 |
+| 合并冲突 | 记录冲突文件到 state.md，尝试自动解决，失败则暂停等待用户 |
+| Agent 跳过阶段 | 自动回退到被跳过的阶段起点，补齐遗漏产出物后继续 |
+| 阶段转换门未通过 | 自动回退到未通过项，补齐后重新自验证 |
 
 ---
 
@@ -1018,7 +1015,7 @@ fi
 
 > 欢迎使用 Omni Workflow。
 >
-> **执行约束提醒**：本工作流的所有阶段和子阶段都是强制的。严禁跳过、简化或主观修改。如需调整流程，必须通过 AskUserQuestion 获得用户明确批准。
+> **执行约束提醒**：本工作流的所有阶段和子阶段都是强制的。严禁跳过、简化或主观修改。流程调整须经用户明确要求后执行。
 >
 > 当前分支：`$_BRANCH`
 > 变更文件数：`$_FILE_COUNT`
