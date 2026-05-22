@@ -1,0 +1,9 @@
+[submodule "gstack"]
+	path = gstack
+	url = https://github.com/garrytan/gstack.git
+[submodule "matt-skills"]
+	path = matt-skills
+	url = https://github.com/mattpocock/skills.git
+[submodule "aidlc-workflows"]
+	path = aidlc-workflows
+	url = https://github.com/awslabs/aidlc-workflows.git

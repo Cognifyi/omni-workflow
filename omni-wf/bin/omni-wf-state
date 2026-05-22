@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Omni Workflow State CLI
+# Usage:
+#   omni-wf-state get
+#   omni-wf-state init
+#   omni-wf-state phase <PHASE>
+#   omni-wf-state stage <STAGE>
+#   omni-wf-state evidence <PHASE> <EVIDENCE_TEXT>
+
+set -euo pipefail
+
+OMNI_DIR=".omni-wf"
+STATE_FILE="$OMNI_DIR/state.md"
+
+cmd="${1:-get}"
+
+ensure_dirs() {
+  mkdir -p "$OMNI_DIR" "$OMNI_DIR/reviews"
+  mkdir -p "docs/prds" "docs/decisions" "docs/adr" "docs/specs"
+}
+
+case "$cmd" in
+  get)
+    if [ -f "$STATE_FILE" ]; then
+      cat "$STATE_FILE"
+    else
+      echo "No state found. Run 'omni-wf-state init' first."
+      exit 1
+    fi
+    ;;
+
+  init)
+    ensure_dirs
+    if [ -f "$STATE_FILE" ]; then
+      echo "State already exists at $STATE_FILE"
+      exit 0
+    fi
+    branch=$(git branch --show-current 2>/dev/null || echo "unknown")
+    now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    cat > "$STATE_FILE" <<EOF
+# Omni Workflow State
+
+## Current Phase: IDLE
+## Current Stage: none
+## Branch: $branch
+## Started At: $now
+## Last Updated: $now
+
+## Completed Phases
+- [ ] INCEPTION
+- [ ] CONSTRUCTION
+- [ ] TEST
+- [ ] SHIP
+
+## Phase Completion Evidence
+
+### INCEPTION Phase
+- Completed At: [待完成]
+- Evidence: [待记录]
+- Sub-phases completed: [待记录]
+- User Confirmation: [待确认]
+
+### CONSTRUCTION Phase
+- Completed At: [待完成]
+- Evidence: [待记录]
+- Issues completed: [N / total N]
+- Per-Issue Review Status: [待记录]
+- User Confirmation: [待确认]
+
+### TEST Phase
+- Completed At: [待完成]
+- Evidence: [待记录]
+- User Confirmation: [待确认]
+
+### SHIP Phase
+- Completed At: [待完成]
+- Evidence: [待记录]
+- User Confirmation: [待确认]
+
+## Pending Decisions
+None
+
+## PRDs
+None
+
+## GitHub Issues
+None
+
+## Notes
+EOF
+    echo "Initialized $STATE_FILE"
+    ;;
+
+  phase)
+    [ -z "${2:-}" ] && { echo "Usage: omni-wf-state phase <PHASE>"; exit 1; }
+    if [ ! -f "$STATE_FILE" ]; then
+      echo "No state found. Run 'omni-wf-state init' first."
+      exit 1
+    fi
+    sed -i "s/^## Current Phase:.*/## Current Phase: $2/" "$STATE_FILE"
+    sed -i "s/^## Last Updated:.*/## Last Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)/" "$STATE_FILE"
+    echo "Phase set to: $2"
+    ;;
+
+  stage)
+    [ -z "${2:-}" ] && { echo "Usage: omni-wf-state stage <STAGE>"; exit 1; }
+    if [ ! -f "$STATE_FILE" ]; then
+      echo "No state found. Run 'omni-wf-state init' first."
+      exit 1
+    fi
+    sed -i "s/^## Current Stage:.*/## Current Stage: $2/" "$STATE_FILE"
+    sed -i "s/^## Last Updated:.*/## Last Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)/" "$STATE_FILE"
+    echo "Stage set to: $2"
+    ;;
+
+  evidence)
+    [ -z "${2:-}" ] && { echo "Usage: omni-wf-state evidence <PHASE> <EVIDENCE_TEXT>"; exit 1; }
+    [ -z "${3:-}" ] && { echo "Usage: omni-wf-state evidence <PHASE> <EVIDENCE_TEXT>"; exit 1; }
+    if [ ! -f "$STATE_FILE" ]; then
+      echo "No state found. Run 'omni-wf-state init' first."
+      exit 1
+    fi
+    phase="$2"
+    evidence="$3"
+    now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    # Update Completed At
+    sed -i "/### ${phase} Phase/{n;s/Completed At:.*/Completed At: $now/;}" "$STATE_FILE"
+    # Update Evidence line
+    awk -v phase="$phase" -v ev="$evidence" '
+      BEGIN { in_section = 0 }
+      $0 ~ "### " phase " Phase" { in_section = 1 }
+      in_section && $0 ~ "^## User Confirmation:" { in_section = 0 }
+      in_section && $0 ~ "Evidence: \[待记录\]" { sub(/Evidence: \[待记录\]/, "Evidence: " ev); in_section = 0 }
+      { print }
+    ' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+    echo "Evidence recorded for ${phase}: ${evidence}"
+    ;;
+
+  *)
+    echo "Usage: omni-wf-state [get|init|phase <PHASE>|stage <STAGE>|evidence <PHASE> <TEXT>]"
+    exit 1
+    ;;
+esac
