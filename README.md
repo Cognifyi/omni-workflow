@@ -13,7 +13,31 @@ Omni Workflow unifies [gstack](https://github.com/garrytan/gstack), [matt-skills
 
 ## Quick start
 
+### One-command installation (recommended)
+
 ```bash
+./install.sh
+```
+
+This will:
+1. Initialize git submodules (gstack, matt-skills, aidlc-workflows)
+2. Install gstack (review, QA, ship, deployment skills)
+3. Install matt-skills (TDD, PRD, issue splitting)
+4. Install omni-wf (workflow orchestrator)
+
+### Manual installation
+
+If you prefer to install components separately:
+
+```bash
+# Initialize submodules
+git submodule update --init --recursive
+
+# Install dependencies individually
+./scripts/install-gstack.sh
+./scripts/install-matt-skills.sh
+
+# Install omni-wf only
 cd omni-wf
 ./setup
 ```
@@ -72,6 +96,49 @@ bun install
 bun build          # outputs mcp-server/dist/server.js
 bun test           # 14 tests — skill validation + MCP integration
 ```
+
+---
+
+## Installation scripts
+
+### Full installer (`./install.sh`)
+
+The root `install.sh` script provides a one-command installation for all dependencies:
+
+```bash
+./install.sh
+```
+
+This script:
+- Checks and initializes git submodules if needed
+- Detects if gstack is already installed (checks for key skills like `/qa`)
+- Detects if matt-skills is already installed (checks for key skills like `/tdd`)
+- Installs missing dependencies automatically
+- Finally installs omni-wf
+
+### Individual component installers
+
+For granular control, you can install each component separately:
+
+```bash
+# Install gstack only
+./scripts/install-gstack.sh
+
+# Install matt-skills only
+./scripts/install-matt-skills.sh
+
+# Install omni-wf only
+cd omni-wf
+./setup
+```
+
+### Installation detection
+
+The installer uses smart detection to avoid redundant installations:
+
+- **gstack**: Checks for `~/.claude/skills/qa` or `~/.codex/skills/gstack`
+- **matt-skills**: Checks for `~/.claude/skills/tdd`
+- If already installed, skips to the next component
 
 ---
 
@@ -210,10 +277,12 @@ your-project/
 
 ## Prerequisites
 
-| Dependency | Install | Used by |
-|------------|---------|---------|
-| **gstack** | `cd gstack && ./setup` | `/review`, `/qa`, `/ship`, `/canary`, `/cso` |
-| **matt-skills** | `cd matt-skills && ./scripts/link-skills.sh` | `/tdd`, `/to-prd`, `/to-issues` |
+The `./install.sh` script handles automatic installation of all dependencies. However, if you prefer manual setup:
+
+| Dependency | Manual Install | Used by |
+|------------|----------------|---------|
+| **gstack** | `cd gstack && ./setup` or `./scripts/install-gstack.sh` | `/review`, `/qa`, `/ship`, `/canary`, `/cso` |
+| **matt-skills** | `cd matt-skills && ./scripts/link-skills.sh` or `./scripts/install-matt-skills.sh` | `/tdd`, `/to-prd`, `/to-issues` |
 | **gh CLI** | `brew install gh` / `apt install gh` | GitHub Issues |
 | **Bun** | `curl -fsSL https://bun.sh/install` | Build + test |
 
