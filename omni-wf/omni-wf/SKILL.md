@@ -641,8 +641,9 @@ EOF
 
 | 条件 | 模式 | 说明 |
 |------|------|------|
-| Issue 涉及文件 < 20 个，预估变更 < 500 行，上下文充裕 | **直接执行** | 主 agent 在现有上下文中完成 TDD |
-| Issue 涉及文件 >= 20 个，或预估变更 >= 500 行，或上下文 > 70% | **subagent 委托** | 将当前 Issue 委托给 subagent |
+| Issue 涉及文件 < 20 个，预估变更 < 500 行，上下文充裕 | **直接执行** | 主 agent 在现有上下文中完成 TDD + 验证 |
+| Issue 涉及文件 >= 20 个，或预估变更 >= 500 行，或上下文 > 70% | **subagent 委托** | 将当前 Issue 的 TDD 委托给 subagent，验证由主 agent 或验证 subagent 执行 |
+| 验证时上下文 > 70%（subagent 产出已占大量 context） | **验证 subagent 委托** | 将回归测试 + /review + /qa 委托给独立验证 subagent |
 | 多个 Issue 无互相依赖 | **并行 subagent** | 同时启动多个 subagent |
 | 用户明确要求 | **subagent 委托** | 优先使用 subagent |
 
@@ -723,12 +724,45 @@ EOF
      "self_review": { "status": "PASS", "findings": [...] },
      "evidence_summary": "实现 JWT auth，3 个测试通过，自检无问题"
    }
-5. 主 agent 验证：
-   a. 检出 subagent 修改的文件
-   b. 运行项目测试确认无回归
-   c. 检查产出物是否满足验收标准
-   d. 补充执行 `/review`（gstack 正式 review）
-   e. 若涉及前端变更，执行 `/qa`
+5. **主 agent 验证**（两种模式，根据上下文余量选择）：
+
+   **模式 A：直接验证**（主 agent 上下文 < 70% 时）
+   - a. 检出 subagent 修改的文件
+   - b. 运行项目测试确认无回归
+   - c. 检查产出物是否满足验收标准
+   - d. 补充执行 `/review`（gstack 正式 review）
+   - e. 若涉及前端变更，执行 `/qa`
+
+   **模式 B：验证 subagent 委托**（主 agent 上下文 >= 70% 时）
+   - a. 主 agent 构建**验证上下文包**：
+     ```json
+     {
+       "issue_id": "NNN",
+       "files_changed": ["src/auth/service.ts", "tests/auth.test.ts"],
+       "acceptance_criteria": [...],
+       "test_command": "bun test",
+       "needs_review": true,
+       "needs_qa": false,
+       "project_root": "/path/to/repo"
+     }
+     ```
+   - b. 调用 run_subagent（profile: subagent_general）执行验证：
+     - 运行项目测试 suite，收集结果摘要
+     - 执行 `/review`，提取关键发现（非完整输出）
+     - 若需要，执行 `/qa`，提取关键 bug 列表
+   - c. 验证 subagent 返回结构化结果：
+     ```json
+     {
+       "tests": { "status": "PASS", "total": 45, "failed": 0, "new_tests": 3 },
+       "review": { "status": "PASS", "critical_findings": [], "warnings": ["建议提取重复代码"] },
+       "qa": { "status": "N/A" },
+       "regression_check": "无回归",
+       "acceptance_verdict": "满足全部验收标准",
+       "recommendation": "接受"
+     }
+     ```
+   - d. 主 agent 只接收结构化摘要，做最终裁决（接受 / 打回 / 补充验证）
+
 6. 验证通过 → 更新 state.md，关闭 Issue
    验证不通过 → 打回 subagent 并附带修正指令
 ```
@@ -743,6 +777,9 @@ EOF
 | subagent 产出不满足验收标准 | 主 agent 分析偏差，生成具体修正指令，重新委托或手动修复 |
 | subagent 修改导致项目测试失败 | 主 agent 运行 `/investigate` 定位问题，打回 subagent 或自行修复 |
 | subagent 上下文超限 | 拆分为更细粒度的子任务（子-Issue），分别委托 |
+| 验证 subagent 测试失败 | 主 agent 分析失败原因，若可自动修复则委托修正 subagent，否则打回原始 subagent |
+| 验证 subagent review 发现关键问题 | 主 agent 提取关键发现，打回原始 subagent 并附带具体修正指令 |
+| 验证 subagent 上下文超限 | 拆分验证任务（先测后 review），或降级为仅运行测试 |
 
 ---
 
