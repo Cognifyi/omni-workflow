@@ -9,8 +9,8 @@ STATE_FILE="$OMNI_DIR/state.md"
 
 cmd="${1:-get}"
 
-ensure_dir() {
-  mkdir -p "$OMNI_DIR" "$OMNI_DIR/decisions" "$OMNI_DIR/prds" "$OMNI_DIR/issues"
+ensure_dirs() {
+  mkdir -p "$OMNI_DIR" "docs/prds" "docs/decisions" "docs/adr" "docs/specs"
 }
 
 case "$cmd" in
@@ -24,7 +24,7 @@ case "$cmd" in
     ;;
 
   init)
-    ensure_dir
+    ensure_dirs
     if [ -f "$STATE_FILE" ]; then
       echo "State already exists at $STATE_FILE"
       exit 0
@@ -54,7 +54,7 @@ None
 ## PRDs
 None
 
-## Issues
+## GitHub Issues
 None
 
 ## Notes

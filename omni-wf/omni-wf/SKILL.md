@@ -31,13 +31,58 @@ Omni Workflow 的运行时就是 AI 代理本身。工作流是**提示词管道
 本技能不替代 gstack 或 matt-skills 的单个技能，而是**编排器**：
 - 检测范围 → 路由评审 → 生成 PRD → 拆分 Issue → TDD 构建 → QA 验证 → 发布部署
 - 每一步调用已有的专业技能完成具体工作
-- 状态落盘到 `.omni-wf/` 目录，支持断点续作
+- 状态落盘到项目文档目录，支持断点续作
+
+## 项目目录规范
+
+Omni Workflow 要求项目使用以下文档目录结构：
+
+```
+/your-project/
+├── docs/
+│   ├── prds/                 # PRD 目录（最终状态，大而全）
+│   │   └── 001-auth-system.md
+│   ├── decisions/            # 动态增量决策日志（PDR / ADR 合一）
+│   │   ├── README.md         # 决策索引表（AI 自动维护）
+│   │   ├── DECISION-001-use-jwt.md
+│   │   └── DECISION-002-pg-over-mysql.md
+│   ├── adr/                  # ADR 目录（matt-skills 惯例）
+│   │   └── ADR-001-cache-strategy.md
+│   └── specs/                # 技术规格与技术方案
+│       └── SPEC-001-oauth-db-design.md
+│
+├── .omni-wf/
+│   └── state.md              # 工作流状态（阶段/进度/待决策）
+│
+└── GitHub Issues             # Issue 垂直切片（通过 gh CLI 管理）
+```
+
+### 命名规范
+
+| 类型 | 格式 | 示例 |
+|------|------|------|
+| PRD | `NNN-{short-title}.md` | `001-auth-system.md` |
+| Decision | `DECISION-NNN-{short-title}.md` | `DECISION-001-use-jwt.md` |
+| ADR | `ADR-NNN-{short-title}.md` | `ADR-001-cache-strategy.md` |
+| Spec | `SPEC-NNN-{short-title}.md` | `SPEC-001-oauth-db-design.md` |
+
+- `NNN`: 3 位零填充序号，递增
+- `short-title`: 小写，kebab-case，不含日期
+- 重命名历史文件时同步更新所有内部引用
+
+### 文档关联规则
+
+- PRD 文件头部的 `## Source` 段落记录关联的决策
+- Decision 文件头部的 `## Related PRD` 段落记录关联的 PRD
+- GitHub Issue body 的 `## Parent PRD` 段落引用本地 PRD 路径
+- GitHub Issue body 的 `## Related Decisions` 段落引用本地决策路径
 
 ## 前置依赖
 
 本技能运行前必须已安装：
 - **gstack** (`~/.claude/skills/gstack/` 存在，或运行过 `./setup`)
-- **matt-skills** (`~/.claude/skills/` 下存在 `tdd`, `to-prd`, `to-issues` 等)
+- **matt-skills** (`~/.claude/skills/` 或 `~/.agents/skills/` 下存在 `tdd`, `to-prd`, `to-issues` 等)
+- **gh CLI**（用于创建和管理 GitHub Issues）
 
 若未安装，提示用户先执行对应项目的 `./setup`。
 
@@ -50,7 +95,8 @@ _STATE_FILE="$_OMNI_DIR/state.md"
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
 
-mkdir -p "$_OMNI_DIR" "$_OMNI_DIR/decisions" "$_OMNI_DIR/prds" "$_OMNI_DIR/issues"
+mkdir -p "$_OMNI_DIR"
+mkdir -p "docs/prds" "docs/decisions" "docs/adr" "docs/specs"
 
 if [ -f "$_STATE_FILE" ]; then
   echo "STATE_FOUND: yes"
@@ -91,9 +137,19 @@ fi
 
 # --- 依赖检查 ---
 _GSTACK_OK=$([ -d ~/.claude/skills/gstack ] && echo "yes" || echo "no")
-_MATT_OK=$([ -d ~/.claude/skills/tdd ] && echo "yes" || echo "no")
+_MATT_OK=$([ -d ~/.claude/skills/tdd ] || [ -d ~/.agents/skills/tdd ] && echo "yes" || echo "no")
+_GH_OK=$(command -v gh >/dev/null 2>&1 && echo "yes" || echo "no")
 echo "GSTACK_INSTALLED: $_GSTACK_OK"
 echo "MATT_INSTALLED: $_MATT_OK"
+echo "GH_INSTALLED: $_GH_OK"
+
+# --- 决策索引更新（如果存在）---
+if [ -f "docs/decisions/README.md" ]; then
+  _DECISION_COUNT=$(ls -1 docs/decisions/DECISION-*.md 2>/dev/null | wc -l | tr -d ' ')
+  echo "DECISION_INDEX: $_DECISION_COUNT entries"
+else
+  echo "DECISION_INDEX: 0 (no README)"
+fi
 ```
 
 ## 阶段总览
@@ -106,12 +162,12 @@ echo "MATT_INSTALLED: $_MATT_OK"
 │                                                                         │
 │  THINK: 范围检测 + 评审路由                                               │
 │  PLAN:  需求细化 + PRD 生成                                              │
-│  ISSUES: 垂直切片拆分 + 本地 Issue 跟踪                                   │
+│  ISSUES: 垂直切片拆分 + GitHub Issue 跟踪                                 │
 │  BUILD:  逐 Issue TDD 编码 + 代码实现                                     │
 │  TEST:   项目测试 + 浏览器验证 + 设计审计                                 │
 │  SHIP:   预合并评审 + 版本 bump + PR + 部署                              │
 │                                                                         │
-│  每阶段强制: state.md 更新 + 决策落盘                                    │
+│  每阶段强制: state.md 更新 + 决策落盘 + 决策索引维护                       │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -149,7 +205,7 @@ None
 ## PRDs
 None
 
-## Issues
+## GitHub Issues
 None
 
 ## Notes
@@ -200,31 +256,33 @@ None
 - 风险评级
 - 推荐的实现路径
 
-写入：`.omni-wf/decisions/DECISION-$(date +%s).md`
+写入：`docs/decisions/DECISION-NNN-{short-title}.md`
 
 ```markdown
-# Decision: THINK-$(date +%s)
+# Decision: DECISION-NNN-{short-title}
 
 ## Phase: THINK
 ## Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+## Status: PENDING
 
-## Scope Summary
-- Changed files: $_FILE_COUNT
-- Frontend: $_HAS_FRONTEND
-- Security: $_HAS_SECURITY
-- API: $_HAS_API
-- DB: $_HAS_DB
+## Context
+[决策背景]
 
-## Routing Decision
-[具体路由方案]
+## Options Considered
+1. [选项A] — [理由]
+2. [选项B] — [理由]
 
-## Key Risks
-1. [风险1]
-2. [风险2]
+## Decision
+[最终决策]
 
-## Recommended Path
-[推荐实现路径]
+## Consequences
+[正面和负面影响]
+
+## Related PRD
+[关联的 PRD，若无则 omit]
 ```
+
+**强制**：生成决策后，更新 `docs/decisions/README.md` 索引表。
 
 ### 1.4 更新 state.md
 
@@ -252,24 +310,28 @@ None
 2. 运行 `/to-prd`
 3. 获取生成的 PRD 内容
 
-### 2.3 PRD 本地保存
+### 2.3 PRD 保存到 docs/prds/
 
-将 PRD 保存到 `.omni-wf/prds/`：
+按命名规范保存：
 
 ```bash
-_PRD_ID=$(printf "%03d" $(ls -1 .omni-wf/prds/PRD-*.md 2>/dev/null | wc -l | tr -d ' '))
-_PRD_FILE=".omni-wf/prds/PRD-$_PRD_ID.md"
+_PRD_COUNT=$(ls -1 docs/prds/*.md 2>/dev/null | wc -l | tr -d ' ')
+_NEXT_ID=$(printf "%03d" $((_PRD_COUNT + 1)))
+# 标题由 PRD 内容提取 short-title 后确定
 ```
 
 保存格式：
 ```markdown
-# PRD-$_PRD_ID: [标题]
+# 001-{short-title}
 
 ## Source
 - 评审文档: [路径]
 - 用户需求: [摘要]
 - 分支: $_BRANCH
 - 日期: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+## Related Decisions
+- docs/decisions/DECISION-NNN-{title}.md
 
 ## Problem Statement
 ...
@@ -294,16 +356,16 @@ _PRD_FILE=".omni-wf/prds/PRD-$_PRD_ID.md"
 
 - `Current Phase: PLAN`
 - `Current Stage: prd-generated`
-- PRDs 列表追加 `PRD-$_PRD_ID`
+- PRDs 列表追加 `docs/prds/NNN-{short-title}.md`
 - 勾选 `[x] PLAN`
 
 **STOP.** 展示 PRD 摘要，询问用户是否满意并进入 ISSUES 拆分。
 
 ---
 
-## Phase 3: ISSUES — 垂直切片拆分
+## Phase 3: ISSUES — 垂直切片拆分（GitHub Issues）
 
-**目标**：将 PRD 拆分为可独立抓取、可追踪的垂直切片 Issue。
+**目标**：将 PRD 拆分为可独立抓取、可追踪的垂直切片 Issue，存储在 GitHub Issues 中。
 
 ### 3.1 运行 `/to-issues`
 
@@ -312,24 +374,16 @@ _PRD_FILE=".omni-wf/prds/PRD-$_PRD_ID.md"
 2. 运行 `/to-issues`
 3. 获取垂直切片列表
 
-### 3.2 本地 Issue 保存
+### 3.2 发布到 GitHub Issues
 
-每个切片保存为一个本地 Issue 文件：
+对每个批准的垂直切片，通过 `gh issue create` 发布：
 
 ```bash
-for slice in "${slices[@]}"; do
-  _ISSUE_ID=$(printf "%03d" $(ls -1 .omni-wf/issues/ISSUE-*.md 2>/dev/null | wc -l | tr -d ' '))
-  _ISSUE_FILE=".omni-wf/issues/ISSUE-$_ISSUE_ID.md"
-  # ... write file
-done
-```
-
-Issue 格式：
-```markdown
-# ISSUE-$_ISSUE_ID: [标题]
-
+gh issue create \
+  --title "[Slice-N] {标题}" \
+  --body "$(cat <<'EOF'
 ## Parent PRD
-PRD-$_PRD_ID
+{PRD 文件路径，如 docs/prds/001-auth-system.md}
 
 ## Type
 [HITL | AFK]
@@ -342,46 +396,57 @@ PRD-$_PRD_ID
 - [ ] ...
 
 ## Blocked by
-[ISSUE-XXX | None]
+[GitHub Issue #XXX | None]
+
+## Related Decisions
+- docs/decisions/DECISION-NNN-{title}.md
 
 ## Status
-[OPEN | IN_PROGRESS | DONE]
+OPEN
+EOF
+)" \
+  --label "omni-wf"
 ```
 
-### 3.3 依赖排序
+记录返回的 GitHub Issue 编号（如 `#42`）。
 
-按依赖关系排序 Issue（blockers 优先）。更新每个 Issue 的 `Blocked by` 字段，引用真实的本地 Issue ID。
+**规则**：
+- 按依赖顺序发布（blockers 优先）
+- 在 blocker Issue 的 body 中引用被阻塞 Issue 的编号
+- 统一使用 `omni-wf` label，便于过滤
 
-### 3.4 更新 state.md
+### 3.3 更新 state.md
 
 - `Current Phase: ISSUES`
-- `Current Stage: ready-for-build`
-- Issues 列表追加所有新生成的 ISSUE-NNN
+- `Current Stage: issues-created`
+- GitHub Issues 列表追加所有新 Issue 编号（如 `#42`, `#43`）
 - 勾选 `[x] ISSUES`
 
-**STOP.** 展示 Issue 列表和依赖图，询问用户是否进入 BUILD。
+**STOP.** 展示 GitHub Issue 列表和依赖图，询问用户是否进入 BUILD。
 
 ---
 
 ## Phase 4: BUILD — TDD 逐 Issue 编码
 
-**目标**：按依赖顺序，对每个 Issue 执行 TDD 开发。
+**目标**：按依赖顺序，对每个 GitHub Issue 执行 TDD 开发。
 
 ### 4.1 选择下一个 Issue
 
-从 `.omni-wf/state.md` 的 Issues 列表中，选择：
-- 状态为 `OPEN`
-- 所有 blocker 状态为 `DONE`
-- 的第一个 Issue
+从 GitHub 查询 `omni-wf` label 下状态为 `open` 且 blocker 已关闭的 Issue：
+
+```bash
+gh issue list --label omni-wf --state open --json number,title,body
+```
 
 若无可用 Issue，BUILD 阶段完成。
 
 ### 4.2 读取 Issue
 
-读取 `.omni-wf/issues/ISSUE-NNN.md`，提取：
+通过 `gh issue view NNN` 读取 Issue 内容，提取：
 - 标题和描述
 - Acceptance Criteria
-- 关联的 PRD 段落
+- 关联的 PRD 路径（读取本地 PRD 获取上下文）
+- 关联的 Decision 路径
 
 ### 4.3 TDD 循环
 
@@ -404,23 +469,24 @@ PRD-$_PRD_ID
 ### 4.4 Issue 完成标记
 
 当 Acceptance Criteria 全部满足：
-1. 更新 `ISSUE-NNN.md` 状态为 `DONE`
-2. 记录完成时间和提交的 commit hash
-3. 运行项目测试命令（从 CLAUDE.md 读取，或自动检测 `npm test`/`bun test`）
-4. 测试通过则继续下一个 Issue；失败则 `/investigate`
+1. 运行项目测试命令（从 CLAUDE.md 读取，或自动检测 `npm test`/`bun test`）
+2. 测试通过：
+   - `gh issue close NNN --comment "Completed via omni-wf BUILD phase"`
+   - 记录 commit hash 到 Issue comment
+3. 测试失败：`/investigate` → 修复 → 回归测试
 
 ### 4.5 更新 state.md
 
 - `Current Phase: BUILD`
 - `Current Stage: issue-N-in-progress` 或 `build-complete`
-- 更新 Issues 状态列表
+- 更新 Issues 状态列表（从 GitHub 重新拉取）
 
 **循环**：回到 4.1，直到所有 Issue 完成。
 
 **当所有 Issue DONE**：
 - `Current Stage: build-complete`
 - 勾选 `[x] BUILD`
-- 展示构建摘要（文件变更、测试统计）
+- 展示构建摘要（文件变更、测试统计、关闭的 Issue 列表）
 - **STOP.** 询问是否进入 TEST。
 
 ---
@@ -484,6 +550,7 @@ fi
    - LLM 信任边界
    - Shell 注入
    - 枚举完整性
+
 2. 检查清单 4 信息项：
    - 异步/同步混合
    - 类型安全
@@ -521,9 +588,12 @@ fi
 - 勾选 `[x] SHIP`
 - 追加完成时间、PR 链接、部署状态
 
-### 6.6 清理
+### 6.6 清理与复盘
 
-可选：询问用户是否保留 `.omni-wf/` 目录用于复盘，或归档到 `.omni-wf/archive/`。
+可选：
+1. 更新 `docs/decisions/README.md` 索引表，标记所有决策为 FINAL
+2. 在 PR 描述中引用 `docs/prds/` 和 `docs/decisions/` 路径
+3. 询问用户是否归档 `.omni-wf/state.md` 到 `.omni-wf/archive/`
 
 **DONE.** 工作流完成。
 
@@ -550,41 +620,39 @@ fi
 - [ ] SHIP
 
 ## PRDs
-- PRD-001: [标题] — [状态]
+- docs/prds/NNN-{title}.md — [状态]
 
-## Issues
-- ISSUE-001: [标题] — [OPEN | IN_PROGRESS | DONE]
-- ISSUE-002: [标题] — [OPEN | IN_PROGRESS | DONE]
+## GitHub Issues
+- #42 — [标题] — [open | closed]
+- #43 — [标题] — [open | closed]
 
 ## Pending Decisions
-- [DECISION-xxx] [摘要] — 等待确认
+- [DECISION-NNN] [摘要] — 等待确认
 
 ## Notes
 [任意备注]
 ```
 
-### 决策文件模板
+### 决策索引表（docs/decisions/README.md）
+
+AI 自动维护的索引表：
 
 ```markdown
-# Decision: DECISION-NNN
+# 决策索引
 
-## Phase: [THINK | PLAN | BUILD | TEST | SHIP]
-## Date: [ISO8601]
-## Status: [PENDING | APPROVED | REJECTED]
+## 活跃决策
 
-## Context
-[决策背景]
+| ID | 标题 | 阶段 | 状态 | 日期 | 关联 PRD |
+|----|------|------|------|------|---------|
+| DECISION-001 | use-jwt | THINK | PENDING | 2026-05-22 | docs/prds/001-auth-system.md |
 
-## Options Considered
-1. [选项A] — 理由
-2. [选项B] — 理由
+## 已归档决策
 
-## Decision
-[最终决策]
-
-## Consequences
-[正面和负面影响]
+| ID | 标题 | 阶段 | 状态 | 日期 | 关联 PRD |
+|----|------|------|------|------|---------|
 ```
+
+**每次生成新的 Decision 后必须更新此索引表。**
 
 ---
 
@@ -594,11 +662,11 @@ fi
 - 每完成一个 Issue，自动 `WIP:` commit
 - 格式：
   ```
-  WIP: omni-wf — completed ISSUE-NNN
+  WIP: omni-wf — completed issue #NNN
 
   [omni-wf-context]
   Phase: BUILD
-  Issue: ISSUE-NNN
+  Issue: #NNN
   Remaining: [N issues]
   [/omni-wf-context]
   ```
@@ -610,10 +678,13 @@ fi
 | 场景 | 恢复策略 |
 |------|---------|
 | 子技能失败 | 记录失败原因到 state.md，询问用户重试/跳过/调整 |
-| 测试失败 | `/investigate` → 修复 → 重新运行当前阶段 |
+| 测试失败 | `/investigate` → 修复 → 回归测试 |
 | 用户打断 | 保存当前 state.md，标记 `INTERRUPTED`，支持 `/context-save` 后恢复 |
-| 依赖缺失 | 询问用户安装 gstack/matt-skills，或跳过依赖阶段 |
+| 依赖缺失 | 询问用户安装 gstack/matt-skills/gh，或跳过依赖阶段 |
 | 无 git 仓库 | 降级为纯文档工作流，跳过 git 相关阶段 |
+| gh CLI 未登录 | 提示 `gh auth login`，或降级为本地 Issue 跟踪 |
+| GitHub Issue 创建失败 | 降级为本地 Issue 文件（临时保存到 `.omni-wf/issues/`），待修复后迁移 |
+| 合并冲突 | 暂停 → 询问用户手动解决 → 恢复 |
 
 ---
 
@@ -628,3 +699,8 @@ fi
 > 变更文件数：`$_FILE_COUNT`
 >
 > 请描述你想要实现的需求，或确认从现有变更开始。
+>
+> 工作流状态将保存在 `./.omni-wf/state.md`
+> PRD 将保存在 `./docs/prds/`
+> 决策将保存在 `./docs/decisions/`
+> Issue 将创建在 GitHub（通过 gh CLI）。

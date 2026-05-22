@@ -49,6 +49,12 @@ if [ -d "$CLAUDE_SKILLS" ]; then
   install_skill_dir "$CLAUDE_SKILLS"
 fi
 
+# Devin / Generic agents
+AGENTS_SKILLS="$HOME/.agents/skills"
+if [ -d "$AGENTS_SKILLS" ]; then
+  install_skill_dir "$AGENTS_SKILLS"
+fi
+
 # OpenCode
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 if [ -d "$OPENCODE_SKILLS" ]; then

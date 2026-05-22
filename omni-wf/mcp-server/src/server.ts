@@ -2,19 +2,23 @@
 /**
  * Omni Workflow MCP Server
  *
- * Exposes workflow state, PRDs, Issues, and Decisions as MCP tools.
- * Communicates over stdio using the Model Context Protocol.
+ * Exposes workflow state, PRDs, Decisions, ADRs, Specs, and GitHub Issues
+ * as MCP tools. Communicates over stdio using the Model Context Protocol.
  *
  * Tools:
- * - get_workflow_status   → read .omni-wf/state.md
- * - list_prds             → list .omni-wf/prds/*.md
- * - get_prd               → read a specific PRD file
- * - list_issues           → list .omni-wf/issues/*.md
- * - get_issue             → read a specific Issue file
- * - update_issue_status   → update an Issue's status
- * - log_decision          → write a decision file
- * - list_decisions        → list .omni-wf/decisions/*.md
- * - advance_phase         → move workflow to next phase
+ * - get_workflow_status    → read .omni-wf/state.md
+ * - list_prds              → list docs/prds/*.md
+ * - get_prd                → read a specific PRD file
+ * - list_decisions         → list docs/decisions/*.md
+ * - get_decision           → read a specific decision file
+ * - log_decision           → write a decision file
+ * - list_adrs              → list docs/adr/*.md
+ * - get_adr                → read a specific ADR file
+ * - list_specs             → list docs/specs/*.md
+ * - get_spec               → read a specific spec file
+ * - list_gh_issues         → list GitHub Issues with omni-wf label
+ * - close_gh_issue         → close a GitHub Issue
+ * - advance_phase          → move workflow to next phase
  *
  * Usage:
  *   bun mcp-server/src/server.ts
@@ -28,12 +32,13 @@ import { join, basename } from "path";
 // ─── Config ──────────────────────────────────────────────────────
 const OMNI_DIR = ".omni-wf";
 const STATE_FILE = join(OMNI_DIR, "state.md");
-const PRDS_DIR = join(OMNI_DIR, "prds");
-const ISSUES_DIR = join(OMNI_DIR, "issues");
-const DECISIONS_DIR = join(OMNI_DIR, "decisions");
+const PRDS_DIR = "docs/prds";
+const DECISIONS_DIR = "docs/decisions";
+const ADRS_DIR = "docs/adr";
+const SPECS_DIR = "docs/specs";
 
 // Ensure dirs exist
-[OMNI_DIR, PRDS_DIR, ISSUES_DIR, DECISIONS_DIR].forEach((d) => {
+[OMNI_DIR, PRDS_DIR, DECISIONS_DIR, ADRS_DIR, SPECS_DIR].forEach((d) => {
   try {
     mkdirSync(d, { recursive: true });
   } catch {
@@ -97,7 +102,7 @@ None
 ## PRDs
 None
 
-## Issues
+## GitHub Issues
 None
 
 ## Notes
@@ -152,6 +157,37 @@ function extractChecklistItems(text: string, section: string): string[] {
     .map((l) => l.trim());
 }
 
+function updateDecisionIndex() {
+  const decisions = listMdFiles(DECISIONS_DIR).filter((d) => d.file.startsWith("DECISION-"));
+  const rows = decisions
+    .map((d) => {
+      const content = readFileSync(join(DECISIONS_DIR, d.file), "utf-8");
+      const fm = parseFrontmatter(content);
+      const phase = fm.Phase || "";
+      const status = fm.Status || "";
+      const date = fm.Date || "";
+      const relatedPrd = fm["Related PRD"] || "";
+      return `| ${d.id} | ${d.title} | ${phase} | ${status} | ${date} | ${relatedPrd} |`;
+    })
+    .join("\n");
+
+  const index = `# 决策索引
+
+## 活跃决策
+
+| ID | 标题 | 阶段 | 状态 | 日期 | 关联 PRD |
+|----|------|------|------|------|---------|
+${rows}
+
+## 已归档决策
+
+（无已归档决策）
+
+_本文件由 omni-wf 自动维护。请勿手动编辑。_
+`;
+  writeFileSync(join(DECISIONS_DIR, "README.md"), index, "utf-8");
+}
+
 // ─── Tool handlers ───────────────────────────────────────────────
 const TOOLS = [
   {
@@ -165,7 +201,7 @@ const TOOLS = [
   },
   {
     name: "list_prds",
-    description: "列出所有本地 PRD 文件",
+    description: "列出所有 PRD 文件 (docs/prds/)",
     inputSchema: {
       type: "object" as const,
       properties: {},
@@ -178,14 +214,14 @@ const TOOLS = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        id: { type: "string", description: "PRD ID，例如 PRD-001" },
+        id: { type: "string", description: "PRD ID，例如 001-auth-system" },
       },
       required: ["id"],
     },
   },
   {
-    name: "list_issues",
-    description: "列出所有本地 Issue 文件",
+    name: "list_decisions",
+    description: "列出所有决策记录 (docs/decisions/)",
     inputSchema: {
       type: "object" as const,
       properties: {},
@@ -193,35 +229,19 @@ const TOOLS = [
     },
   },
   {
-    name: "get_issue",
-    description: "读取指定 Issue 的完整内容",
+    name: "get_decision",
+    description: "读取指定决策的完整内容",
     inputSchema: {
       type: "object" as const,
       properties: {
-        id: { type: "string", description: "Issue ID，例如 ISSUE-001" },
+        id: { type: "string", description: "Decision ID，例如 DECISION-001-use-jwt" },
       },
       required: ["id"],
     },
   },
   {
-    name: "update_issue_status",
-    description: "更新 Issue 的状态（OPEN / IN_PROGRESS / DONE）",
-    inputSchema: {
-      type: "object" as const,
-      properties: {
-        id: { type: "string", description: "Issue ID" },
-        status: {
-          type: "string",
-          enum: ["OPEN", "IN_PROGRESS", "DONE"],
-        },
-        note: { type: "string", description: "可选备注" },
-      },
-      required: ["id", "status"],
-    },
-  },
-  {
     name: "log_decision",
-    description: "写入一条决策记录",
+    description: "写入一条决策记录并自动更新索引",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -229,17 +249,77 @@ const TOOLS = [
         context: { type: "string", description: "决策背景" },
         decision: { type: "string", description: "最终决策" },
         consequences: { type: "string", description: "正面和负面影响" },
+        related_prd: { type: "string", description: "关联 PRD 路径（可选）" },
+        title: { type: "string", description: "决策短标题（kebab-case）" },
       },
-      required: ["phase", "context", "decision"],
+      required: ["phase", "context", "decision", "title"],
     },
   },
   {
-    name: "list_decisions",
-    description: "列出所有决策记录",
+    name: "list_adrs",
+    description: "列出所有 ADR 文件 (docs/adr/)",
     inputSchema: {
       type: "object" as const,
       properties: {},
       required: [],
+    },
+  },
+  {
+    name: "get_adr",
+    description: "读取指定 ADR 的完整内容",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "string", description: "ADR ID，例如 ADR-001-cache-strategy" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "list_specs",
+    description: "列出所有 Spec 文件 (docs/specs/)",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_spec",
+    description: "读取指定 Spec 的完整内容",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "string", description: "Spec ID，例如 SPEC-001-oauth-db-design" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "list_gh_issues",
+    description: "列出带 omni-wf label 的 GitHub Issues",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        state: {
+          type: "string",
+          enum: ["open", "closed", "all"],
+          description: "Issue 状态过滤",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "close_gh_issue",
+    description: "关闭一个 GitHub Issue",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        number: { type: "number", description: "Issue 编号" },
+        comment: { type: "string", description: "关闭评论（可选）" },
+      },
+      required: ["number"],
     },
   },
   {
@@ -265,7 +345,7 @@ function handleTool(name: string, args: any): any {
       const state = readState();
       const fm = parseFrontmatter(state);
       const prds = extractChecklistItems(state, "PRDs");
-      const issues = extractChecklistItems(state, "Issues");
+      const issues = extractChecklistItems(state, "GitHub Issues");
       const completed = extractChecklistItems(state, "Completed Phases");
       return {
         phase: fm["Current Phase"] || fm.Phase || "IDLE",
@@ -290,44 +370,68 @@ function handleTool(name: string, args: any): any {
       return { id: args.id, content: readFileSync(file, "utf-8") };
     }
 
-    case "list_issues": {
-      return { issues: listMdFiles(ISSUES_DIR) };
+    case "list_decisions": {
+      return { decisions: listMdFiles(DECISIONS_DIR).filter((d) => d.file.startsWith("DECISION-")) };
     }
 
-    case "get_issue": {
-      const file = join(ISSUES_DIR, args.id + ".md");
-      if (!existsSync(file)) return { error: "Issue not found", id: args.id };
+    case "get_decision": {
+      const file = join(DECISIONS_DIR, args.id + ".md");
+      if (!existsSync(file)) return { error: "Decision not found", id: args.id };
       return { id: args.id, content: readFileSync(file, "utf-8") };
-    }
-
-    case "update_issue_status": {
-      const file = join(ISSUES_DIR, args.id + ".md");
-      if (!existsSync(file)) return { error: "Issue not found", id: args.id };
-      let content = readFileSync(file, "utf-8");
-      content = content.replace(
-        /^## Status\s*\n.*$/m,
-        `## Status\n${args.status}`
-      );
-      if (args.note) {
-        content += `\n\n## Update Log\n- ${new Date().toISOString()}: ${args.note}\n`;
-      }
-      writeFileSync(file, content, "utf-8");
-      return { success: true, id: args.id, status: args.status };
     }
 
     case "log_decision": {
       const count = existsSync(DECISIONS_DIR)
-        ? readdirSync(DECISIONS_DIR).filter((f) => f.endsWith(".md")).length
+        ? readdirSync(DECISIONS_DIR).filter((f) => f.startsWith("DECISION-") && f.endsWith(".md")).length
         : 0;
-      const id = `DECISION-${String(count + 1).padStart(3, "0")}`;
+      const id = `DECISION-${String(count + 1).padStart(3, "0")}-${args.title}`;
       const now = new Date().toISOString();
-      const body = `# ${id}\n\n## Phase: ${args.phase}\n## Date: ${now}\n## Status: PENDING\n\n## Context\n${args.context}\n\n## Decision\n${args.decision}\n\n## Consequences\n${args.consequences || "(none recorded)"}\n`;
+      const relatedPrd = args.related_prd ? `\n## Related PRD\n${args.related_prd}\n` : "";
+      const body = `# ${id}\n\n## Phase: ${args.phase}\n## Date: ${now}\n## Status: PENDING\n${relatedPrd}\n## Context\n${args.context}\n\n## Decision\n${args.decision}\n\n## Consequences\n${args.consequences || "(none recorded)"}\n`;
       writeFileSync(join(DECISIONS_DIR, id + ".md"), body, "utf-8");
+      updateDecisionIndex();
       return { success: true, id, file: `${id}.md` };
     }
 
-    case "list_decisions": {
-      return { decisions: listMdFiles(DECISIONS_DIR) };
+    case "list_adrs": {
+      return { adrs: listMdFiles(ADRS_DIR).filter((d) => d.file.startsWith("ADR-")) };
+    }
+
+    case "get_adr": {
+      const file = join(ADRS_DIR, args.id + ".md");
+      if (!existsSync(file)) return { error: "ADR not found", id: args.id };
+      return { id: args.id, content: readFileSync(file, "utf-8") };
+    }
+
+    case "list_specs": {
+      return { specs: listMdFiles(SPECS_DIR).filter((d) => d.file.startsWith("SPEC-")) };
+    }
+
+    case "get_spec": {
+      const file = join(SPECS_DIR, args.id + ".md");
+      if (!existsSync(file)) return { error: "Spec not found", id: args.id };
+      return { id: args.id, content: readFileSync(file, "utf-8") };
+    }
+
+    case "list_gh_issues": {
+      const stateFilter = args.state || "all";
+      const output = execSilently(`gh issue list --label omni-wf --state ${stateFilter} --json number,title,state,labels,url 2>/dev/null`) || "[]";
+      try {
+        return { issues: JSON.parse(output) };
+      } catch {
+        return { issues: [], raw: output };
+      }
+    }
+
+    case "close_gh_issue": {
+      const cmd = args.comment
+        ? `gh issue close ${args.number} --comment "${args.comment.replace(/"/g, '\\"')}"`
+        : `gh issue close ${args.number}`;
+      const result = execSilently(cmd);
+      if (result && result.toLowerCase().includes("error")) {
+        return { success: false, error: result };
+      }
+      return { success: true, number: args.number, output: result };
     }
 
     case "advance_phase": {
