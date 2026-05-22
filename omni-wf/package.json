@@ -1,12 +1,13 @@
 {
   "name": "omni-wf",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Omni Workflow — 自主开发工作流编排器 (SKILL.md + MCP Server)",
   "type": "module",
   "scripts": {
     "build": "bun build mcp-server/src/server.ts --outdir mcp-server/dist --target node",
     "dev": "bun mcp-server/src/server.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "test:watch": "bun test --watch"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

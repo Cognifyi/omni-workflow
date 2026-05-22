@@ -47,35 +47,25 @@ case "$cmd" in
 ## Last Updated: $now
 
 ## Completed Phases
-- [ ] THINK
-- [ ] PLAN
-- [ ] ISSUES
-- [ ] BUILD
+- [ ] INCEPTION
+- [ ] CONSTRUCTION
 - [ ] TEST
 - [ ] SHIP
 
 ## Phase Completion Evidence
 
-### THINK Phase
+### INCEPTION Phase
 - Completed At: [待完成]
 - Evidence: [待记录]
+- Sub-phases completed: [待记录]
 - User Confirmation: [待确认]
 
-### PLAN Phase
+### CONSTRUCTION Phase
 - Completed At: [待完成]
 - Evidence: [待记录]
-- User Confirmation: [待确认]
-
-### ISSUES Phase
-- Completed At: [待完成]
-- Evidence: [待记录]
-- User Confirmation: [待确认]
-
-### BUILD Phase
-- Completed At: [待完成]
-- Evidence: [待记录]
-- User Confirmation: [待确认]
+- Issues completed: [N / total N]
 - Per-Issue Review Status: [待记录]
+- User Confirmation: [待确认]
 
 ### TEST Phase
 - Completed At: [待完成]
@@ -133,8 +123,9 @@ EOF
     phase="$2"
     evidence="$3"
     now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    # Update Completed At
     sed -i "/### ${phase} Phase/{n;s/Completed At:.*/Completed At: $now/;}" "$STATE_FILE"
-    # Append evidence to the Evidence line in that section
+    # Update Evidence line
     awk -v phase="$phase" -v ev="$evidence" '
       BEGIN { in_section = 0 }
       $0 ~ "### " phase " Phase" { in_section = 1 }

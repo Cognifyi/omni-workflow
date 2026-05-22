@@ -1,46 +1,32 @@
-# Omni Workflow (omni-wf)
+# Omni Workflow (omni-wf) v0.2.0
 
 **通用自主开发工作流编排器。**
 
-将 Think → Plan → PRD → Issues → TDD-Build → Test → Ship 串联为一条自动化管道。
-自动检测变更范围，路由到合适的评审技能，驱动现有 gstack / matt-skills 完成全流程开发。
+对齐 gstack / matt-skills / aidlc-workflows 三大体系，将 INCEPTION → CONSTRUCTION → TEST → SHIP 串联为一条自动化管道。
 
-**核心约束：所有阶段和步骤都是强制的。严禁跳过、简化或主观修改。**
+**核心约束：所有阶段和子阶段都是强制的。严禁跳过、简化或主观修改。**
 
 ---
 
 ## 执行约束（CRITICAL）
 
-Agent 加载本技能后必须遵守以下约束：
-
-### 禁止行为
+Agent 加载本技能后必须遵守：
 
 | 禁止项 | 说明 |
 |--------|------|
-| 跳过阶段 | 不得以"学习项目"、"足够简单"等理由跳过任何阶段 |
-| 跳过步骤 | 阶段内每个步骤必须完整执行 |
+| 跳过阶段 | 不得以任何理由跳过 INCEPTION / CONSTRUCTION / TEST / SHIP |
+| 跳过子阶段 | 不得跳过 INCEPTION 中的 5 个子阶段 |
 | 提前进入下一阶段 | 当前阶段未提供可验证证据前，不得进入下一阶段 |
-| 替换 skill 调用 | 不得以其他操作替代文档要求的 `/skill-name` |
-| 主观判断替代规则 | 不得以个人判断覆盖文档中的路由规则 |
+| 替换 skill 调用 | 不得以其他操作替代文档中明确要求的 `/skill-name` |
+| 主观判断替代规则 | 不得以"学习项目"、"足够简单"等理由覆盖路由规则 |
 
-### 强制要求
-
-| 要求 | 说明 |
+| 强制要求 | 说明 |
 |------|------|
-| 完整执行 | 每个阶段必须执行文档中列出的**所有**步骤 |
+| 完整执行 | 每个子阶段必须执行文档中列出的**所有**步骤 |
+| 产出物落盘 | 每个子阶段必须有明确的产出物（文档/记录/编号） |
 | 证据记录 | 每个阶段完成后必须在 state.md 中记录可验证的完成证据 |
 | 用户确认 | 每个阶段转换必须通过 AskUserQuestion 获得用户明确批准 |
-| 违规即停 | 发现偏差必须立即停止，向用户报告，等待指示 |
-| 条件即执行 | 文档中标注"若 XXX > 0，必须 XXX"的条件，一旦触发必须执行 |
-
-### 违规处理协议
-
-```
-发现违规 → 立即停止工作流
-         → 向用户报告具体违规行为
-         → 等待用户明确指示
-         → 不得自行"修复"或"调整"后继续
-```
+| 违规即停 | 发现任何偏差必须立即停止工作流，向用户报告，等待指示 |
 
 ---
 
@@ -77,8 +63,9 @@ cd omni-wf
 
 Claude 会自动：
 1. 检测当前分支的变更范围
-2. 路由到合适的评审技能（/autoplan、/plan-eng-review 等）
-3. 生成 PRD → 拆分 GitHub Issue → TDD 构建 → 代码审查 + QA → 发布
+2. 按 INCEPTION → CONSTRUCTION → TEST → SHIP 顺序执行
+3. 每个子阶段调用对应的专业 skill，产出文档，记录证据
+4. 每个阶段转换前通过 AskUserQuestion 获得用户确认
 
 ### 3.（可选）安装 MCP Server
 
@@ -103,8 +90,6 @@ Claude 会自动：
 
 ## 前置依赖
 
-Omni Workflow 本身不替代现有技能，而是编排它们。你需要先安装：
-
 | 依赖 | 安装方式 | 用途 |
 |------|---------|------|
 | **gstack** | `cd gstack && ./setup` | 评审、QA、发布、部署、安全审计 |
@@ -118,23 +103,24 @@ Omni Workflow 本身不替代现有技能，而是编排它们。你需要先安
 ```
 /your-project/
 ├── docs/
-│   ├── prds/                 # PRD 目录（最终状态，大而全）
+│   ├── prds/                 # PRD 目录（INCEPTION 阶段产出）
 │   │   └── 001-auth-system.md
-│   ├── decisions/            # 动态增量决策日志（PDR / ADR 合一）
+│   ├── decisions/            # 决策日志（INCEPTION 各子阶段产出）
 │   │   ├── README.md         # 决策索引表（AI 自动维护）
-│   │   ├── DECISION-001-use-jwt.md
-│   │   └── DECISION-002-pg-over-mysql.md
+│   │   ├── DECISION-001-office-hours-use-jwt.md
+│   │   ├── DECISION-002-eng-review-use-postgres.md
+│   │   └── DECISION-003-design-review-dark-mode.md
 │   ├── adr/                  # ADR 目录（matt-skills 惯例）
 │   │   └── ADR-001-cache-strategy.md
-│   └── specs/                # 技术规格与技术方案
+│   └── specs/                # 技术规格（Eng Review 产出）
 │       └── SPEC-001-oauth-db-design.md
 │
 ├── .omni-wf/
 │   ├── state.md              # 工作流状态（阶段/进度/证据）
-│   └── reviews/              # 逐 Issue review 记录（BUILD 阶段产出）
+│   └── reviews/              # 逐 Issue review/QA 记录（CONSTRUCTION 产出）
 │       └── issue-001.md
 │
-└── GitHub Issues             # Issue 垂直切片（omni-wf label）
+└── GitHub Issues             # Issue 垂直切片（CONSTRUCTION 阶段产出，omni-wf label）
 ```
 
 ### 命名规范
@@ -142,7 +128,7 @@ Omni Workflow 本身不替代现有技能，而是编排它们。你需要先安
 | 类型 | 格式 | 示例 |
 |------|------|------|
 | PRD | `NNN-{short-title}.md` | `001-auth-system.md` |
-| Decision | `DECISION-NNN-{short-title}.md` | `DECISION-001-use-jwt.md` |
+| Decision | `DECISION-NNN-{source}-{short-title}.md` | `DECISION-001-office-hours-use-jwt.md` |
 | ADR | `ADR-NNN-{short-title}.md` | `ADR-001-cache-strategy.md` |
 | Spec | `SPEC-NNN-{short-title}.md` | `SPEC-001-oauth-db-design.md` |
 | Review | `issue-NNN.md` | `issue-001.md` |
@@ -152,81 +138,114 @@ Omni Workflow 本身不替代现有技能，而是编排它们。你需要先安
 ## 工作流管道
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│ THINK → PLAN → ISSUES → BUILD → TEST → SHIP                         │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  阶段转换门: 每个 → 前必须通过验证清单 + 用户确认                      │
-│  违规处理: 发现跳过/遗漏 → 立即停止 → 报告用户 → 等待指示            │
-│                                                                      │
-│  THINK   范围检测 → 路由评审 (/autoplan /plan-eng-review ...)        │
-│  PLAN    需求细化 → PRD 生成 (/to-prd) → 保存到 docs/prds/           │
-│  ISSUES  垂直切片 → GitHub Issue 创建 (gh issue create --label omni-wf)
-│  BUILD   逐 Issue TDD 编码 (/tdd)                                     │
-│           → 每个 Issue 完成后必须 /review + (前端则 /qa) + 测试       │
-│           → review 记录保存到 .omni-wf/reviews/issue-NNN.md           │
-│           → 全部通过后 gh issue close #NNN                            │
-│  TEST    项目测试 + 浏览器验证 + 设计审计 (/qa /design-review)         │
-│  SHIP    预合并评审 + 版本 bump + PR + 部署 (/ship /land-and-deploy)  │
-│                                                                      │
-│  每阶段: state.md 更新 + 决策落盘 + 决策索引维护 + 完成证据记录        │
-└──────────────────────────────────────────────────────────────────────┘
+INCEPTION (需求明确 + 架构锁定)
+  ├── 1.1 Office Hours      → /office-hours      → 产出: 需求验证决策
+  ├── 1.2 CEO Review       → /plan-ceo-review   → 产出: 战略决策
+  ├── 1.3 Eng Review       → /plan-eng-review   → 产出: 架构决策 + 数据流图 + 测试策略 + SPEC
+  ├── 1.4 Design Review    → /plan-design-review → 产出: 设计决策 (条件: HAS_FRONTEND>0)
+  └── 1.5 PRD Finalization  → /to-prd            → 产出: docs/prds/NNN-xxx.md
+
+CONSTRUCTION (垂直切片编码)
+  ├── 2.1 Issue Split      → /to-issues         → 产出: GitHub Issues (omni-wf label)
+  ├── 2.2 Per-Issue TDD    → /tdd (含 aidlc construction 规范) → 产出: 代码 + 测试
+  ├── 2.3 Per-Issue Review → /review            → 产出: .omni-wf/reviews/issue-NNN.md
+  ├── 2.4 Per-Issue QA     → /qa                → 产出: QA 报告 (条件: 前端 Issue)
+  └── 2.5 Per-Issue Test   → npm test           → 产出: 测试通过记录
+
+TEST (系统集成验证)
+  ├── 3.1 Integration Tests
+  ├── 3.2 Browser Validation (条件: HAS_FRONTEND>0)
+  ├── 3.3 Design Audit     (条件: HAS_FRONTEND>0)
+  ├── 3.4 Security Audit   (条件: HAS_SECURITY>0)
+  └── 3.5 Bug Investigation (条件: 发现 Bug)
+
+SHIP (发布部署)
+  ├── 4.1 Pre-merge Review
+  ├── 4.2 Performance Baseline (条件: HAS_FRONTEND>0)
+  ├── 4.3 Release          → /ship
+  ├── 4.4 Deploy           → /land-and-deploy
+  └── 4.5 Canary           → /canary
 ```
 
-### 范围自动路由
+### 与三大体系的映射
 
-| 文件数 | 类型 | 必须执行的评审 |
-|--------|------|-------------|
-| >20 | 宏大变更 | `/autoplan`（CEO→Design→Eng→DX） |
-| 5-20 | 功能级 | `/plan-eng-review` + 条件叠加 |
-| <5 | 增量 | 跳过 THINK，直接 PLAN |
-| Bug | 缺陷修复 | `/investigate` → PLAN |
-| 含前端文件 | 有 UI | **必须**叠加 `/plan-design-review` + `/design-review` |
-| 含安全相关 | 安全敏感 | **必须**叠加 `/cso` |
-| 含 API/路由 | 对外接口 | **必须**叠加 `/plan-devex-review` |
+| omni-wf | gstack | matt-skills | aidlc-workflows |
+|---------|--------|-------------|-----------------|
+| INCEPTION | `/office-hours` → `/plan-ceo-review` → `/plan-eng-review` → `/plan-design-review` | `/to-prd` | inception |
+| CONSTRUCTION | `/tdd` + `/review` + `/qa` | `/tdd` + `/to-issues` | construction |
+| TEST | `/qa` + `/design-review` + `/cso` + `/investigate` | — | construction (nfr) |
+| SHIP | `/review` + `/benchmark` + `/ship` + `/land-and-deploy` + `/canary` | — | operations |
 
 ---
 
-## BUILD 阶段强制审查
+## INCEPTION 阶段详解
 
-每个 GitHub Issue 完成后，**必须**按顺序执行：
+INCEPTION 的 5 个子阶段必须按顺序执行。每个子阶段都有明确的产出物。
 
-1. **`/review`** — 代码审查（9 项检查清单）
-   - 发现问题必须修复后重新 review
-   - 输出保存到 `.omni-wf/reviews/issue-NNN.md`
+### 1.1 Office Hours — 需求验证
 
-2. **`/qa`** — 前端 Issue 必须执行
-   - 发现 bug 必须修复后重新 QA
-   - 报告追加到 `.omni-wf/reviews/issue-NNN.md`
+**调用**：`/office-hours`
 
-3. **项目测试套件** — 必须全部通过
-   - 失败 → `/investigate` → 修复 → 重新测试
+**产出物**：
+- `docs/decisions/DECISION-NNN-office-hours-{title}.md`
 
-4. **关闭 Issue** — 只有以上全部通过后才能执行
-   - `gh issue close NNN --comment "Completed. Review: PASS. QA: [PASS/N/A]. Tests: PASS."`
+### 1.2 CEO Review — 战略评审
+
+**调用**：`/plan-ceo-review`
+
+**产出物**：
+- `docs/decisions/DECISION-NNN-ceo-review-{title}.md`
+
+### 1.3 Eng Review — 架构评审
+
+**调用**：`/plan-eng-review`
+
+**产出物**：
+- `docs/decisions/DECISION-NNN-eng-review-{title}.md`
+- `docs/specs/SPEC-NNN-{title}.md`
+
+### 1.4 Design Review — 设计评审
+
+**调用**：`/plan-design-review`
+**条件**：`HAS_FRONTEND > 0` 时必须执行
+
+**产出物**：
+- `docs/decisions/DECISION-NNN-design-review-{title}.md`
+
+### 1.5 PRD Finalization — PRD 生成
+
+**调用**：`/to-prd`
+
+**产出物**：
+- `docs/prds/NNN-{title}.md`
 
 ---
 
-## 状态管理
+## CONSTRUCTION 阶段详解
 
-工作流状态保存在 `.omni-wf/state.md`。关键字段：
+### 2.2 Per-Issue TDD — 引入 aidlc construction 规范
 
-```markdown
-## Current Phase: [IDLE | THINK | PLAN | ISSUES | BUILD | TEST | SHIP]
+在 matt-skills `/tdd` 的基础上，引入 aidlc-workflows construction 规范：
 
-## Completed Phases
-- [x] THINK (completed at: ...)
-- [x] PLAN (completed at: ...)
+- **Planning**：检查 NFR 需求（性能、安全、可扩展性）
+- **Tracer Bullet**：RED→GREEN 验证端到端路径
+- **Incremental Loop**：逐个测试→实现，垂直切片
+- **Refactor**：GREEN 状态下重构，引入 aidlc 代码生成规范
 
-## Phase Completion Evidence
+### 2.3 Per-Issue Review — 强制代码审查
 
-### THINK Phase
-- Completed At: 2026-05-22T10:00:00Z
-- Evidence: 5 files changed, routing: /plan-eng-review + /cso, decisions: DECISION-001
-- User Confirmation: Approved via AskUserQuestion
-```
+每个 Issue 完成后**必须**执行 `/review`（9 项检查清单）：
+1. SQL & 数据安全
+2. 竞态条件 & 并发
+3. LLM 信任边界
+4. Shell 注入
+5. 枚举完整性
+6. 异步/同步混合
+7. 类型安全
+8. 前端可访问性
+9. 超时安全
 
-支持断点续作：工作流可随时中断，下次 `/omni-wf` 会从上次位置继续。
+发现问题必须修复后重新 review。输出保存到 `.omni-wf/reviews/issue-NNN.md`。
 
 ---
 
@@ -239,7 +258,7 @@ Omni Workflow 本身不替代现有技能，而是编排它们。你需要先安
 | `get_prd` | 读取指定 PRD |
 | `list_decisions` | 列出所有决策 |
 | `get_decision` | 读取指定决策 |
-| `log_decision` | 写入决策并自动更新索引 |
+| `log_decision` | 写入决策并自动更新索引（新增 sub_phase 字段） |
 | `list_adrs` | 列出所有 ADR |
 | `get_adr` | 读取指定 ADR |
 | `list_specs` | 列出所有 Spec |
@@ -254,18 +273,37 @@ Omni Workflow 本身不替代现有技能，而是编排它们。你需要先安
 
 ---
 
-## 决策索引表
+## 状态管理
 
-`docs/decisions/README.md` 由 AI 自动维护：
+`.omni-wf/state.md` 示例：
 
 ```markdown
-# 决策索引
+# Omni Workflow State
 
-## 活跃决策
+## Current Phase: CONSTRUCTION
+## Current Stage: per-issue-tdd
 
-| ID | 标题 | 阶段 | 状态 | 日期 | 关联 PRD |
-|----|------|------|------|------|---------|
-| DECISION-001 | use-jwt | THINK | PENDING | 2026-05-22 | docs/prds/001-auth-system.md |
+## Completed Phases
+- [x] INCEPTION
+- [ ] CONSTRUCTION
+- [ ] TEST
+- [ ] SHIP
+
+## Phase Completion Evidence
+
+### INCEPTION Phase
+- Completed At: 2026-05-22T12:00:00Z
+- Evidence: 5 decisions logged, 2 specs created, 1 PRD finalized
+- Sub-phases: office-hours, ceo-review, eng-review, design-review, prd-finalization
+- User Confirmation: Approved via AskUserQuestion
+
+### CONSTRUCTION Phase
+- Completed At: [待完成]
+- Evidence: [待记录]
+- Issues completed: 3 / 10
+- Per-Issue Review Status:
+  - #42 — review: PASS, qa: PASS, tests: PASS
+  - #43 — review: PASS, qa: N/A, tests: PASS
 ```
 
 ---
