@@ -2,23 +2,28 @@
 /**
  * Omni Workflow MCP Server
  *
- * Exposes workflow state, PRDs, Decisions, ADRs, Specs, and GitHub Issues
- * as MCP tools. Communicates over stdio using the Model Context Protocol.
+ * Exposes workflow state, PRDs, Decisions, ADRs, Specs, GitHub Issues,
+ * and per-Issue review/QA records as MCP tools.
+ * Communicates over stdio using the Model Context Protocol.
  *
  * Tools:
- * - get_workflow_status    → read .omni-wf/state.md
- * - list_prds              → list docs/prds/*.md
- * - get_prd                → read a specific PRD file
- * - list_decisions         → list docs/decisions/*.md
- * - get_decision           → read a specific decision file
- * - log_decision           → write a decision file
- * - list_adrs              → list docs/adr/*.md
- * - get_adr                → read a specific ADR file
- * - list_specs             → list docs/specs/*.md
- * - get_spec               → read a specific spec file
- * - list_gh_issues         → list GitHub Issues with omni-wf label
- * - close_gh_issue         → close a GitHub Issue
- * - advance_phase          → move workflow to next phase
+ * - get_workflow_status          → read .omni-wf/state.md (with review counts)
+ * - list_prds                    → list docs/prds/*.md
+ * - get_prd                      → read a specific PRD file
+ * - list_decisions               → list docs/decisions/*.md
+ * - get_decision                 → read a specific decision file
+ * - log_decision                 → write a decision file + update index
+ * - list_adrs                    → list docs/adr/*.md
+ * - get_adr                      → read a specific ADR file
+ * - list_specs                   → list docs/specs/*.md
+ * - get_spec                     → read a specific spec file
+ * - list_gh_issues               → list GitHub Issues with omni-wf label
+ * - close_gh_issue               → close a GitHub Issue
+ * - log_review                   → write per-issue review/QA/test record
+ * - list_reviews                 → list all review records
+ * - get_review                   → read a specific review record
+ * - validate_phase_transition    → check if phase can advance (evidence, reviews, etc)
+ * - advance_phase                → move workflow to next phase (requires evidence)
  *
  * Usage:
  *   bun mcp-server/src/server.ts
@@ -32,13 +37,14 @@ import { join, basename } from "path";
 // ─── Config ──────────────────────────────────────────────────────
 const OMNI_DIR = ".omni-wf";
 const STATE_FILE = join(OMNI_DIR, "state.md");
+const REVIEWS_DIR = join(OMNI_DIR, "reviews");
 const PRDS_DIR = "docs/prds";
 const DECISIONS_DIR = "docs/decisions";
 const ADRS_DIR = "docs/adr";
 const SPECS_DIR = "docs/specs";
 
 // Ensure dirs exist
-[OMNI_DIR, PRDS_DIR, DECISIONS_DIR, ADRS_DIR, SPECS_DIR].forEach((d) => {
+[OMNI_DIR, REVIEWS_DIR, PRDS_DIR, DECISIONS_DIR, ADRS_DIR, SPECS_DIR].forEach((d) => {
   try {
     mkdirSync(d, { recursive: true });
   } catch {
@@ -95,6 +101,39 @@ function initState(): string {
 - [ ] BUILD
 - [ ] TEST
 - [ ] SHIP
+
+## Phase Completion Evidence
+
+### THINK Phase
+- Completed At: [待完成]
+- Evidence: [待记录]
+- User Confirmation: [待确认]
+
+### PLAN Phase
+- Completed At: [待完成]
+- Evidence: [待记录]
+- User Confirmation: [待确认]
+
+### ISSUES Phase
+- Completed At: [待完成]
+- Evidence: [待记录]
+- User Confirmation: [待确认]
+
+### BUILD Phase
+- Completed At: [待完成]
+- Evidence: [待记录]
+- User Confirmation: [待确认]
+- Per-Issue Review Status: [待记录]
+
+### TEST Phase
+- Completed At: [待完成]
+- Evidence: [待记录]
+- User Confirmation: [待确认]
+
+### SHIP Phase
+- Completed At: [待完成]
+- Evidence: [待记录]
+- User Confirmation: [待确认]
 
 ## Pending Decisions
 None
@@ -157,6 +196,12 @@ function extractChecklistItems(text: string, section: string): string[] {
     .map((l) => l.trim());
 }
 
+function extractSection(text: string, section: string): string {
+  const regex = new RegExp(`### ${section} Phase\\n([\\s\\S]*?)(?=### |## |\\z)`);
+  const match = text.match(regex);
+  return match ? match[1].trim() : "";
+}
+
 function updateDecisionIndex() {
   const decisions = listMdFiles(DECISIONS_DIR).filter((d) => d.file.startsWith("DECISION-"));
   const rows = decisions
@@ -188,11 +233,24 @@ _本文件由 omni-wf 自动维护。请勿手动编辑。_
   writeFileSync(join(DECISIONS_DIR, "README.md"), index, "utf-8");
 }
 
+function getReviewStats(): { total: number; passed: number; failed: number } {
+  if (!existsSync(REVIEWS_DIR)) return { total: 0, passed: 0, failed: 0 };
+  const files = readdirSync(REVIEWS_DIR).filter((f) => f.endsWith(".md"));
+  let passed = 0;
+  let failed = 0;
+  for (const f of files) {
+    const content = readFileSync(join(REVIEWS_DIR, f), "utf-8");
+    if (content.includes("Review Status: PASS")) passed++;
+    else failed++;
+  }
+  return { total: files.length, passed, failed };
+}
+
 // ─── Tool handlers ───────────────────────────────────────────────
 const TOOLS = [
   {
     name: "get_workflow_status",
-    description: "读取当前工作流状态，返回结构化摘要",
+    description: "读取当前工作流状态，返回结构化摘要（含 review 统计）",
     inputSchema: {
       type: "object" as const,
       properties: {},
@@ -323,8 +381,65 @@ const TOOLS = [
     },
   },
   {
+    name: "log_review",
+    description: "写入一条 per-Issue review/QA/test 记录到 .omni-wf/reviews/",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        issue_number: { type: "number", description: "GitHub Issue 编号" },
+        review_status: { type: "string", enum: ["PASS", "FAIL", "PENDING"], description: "/review 结果" },
+        review_output: { type: "string", description: "/review 输出摘要" },
+        qa_status: { type: "string", enum: ["PASS", "FAIL", "N/A"], description: "/qa 结果" },
+        qa_output: { type: "string", description: "/qa 输出摘要（可选）" },
+        test_status: { type: "string", enum: ["PASS", "FAIL"], description: "项目测试状态" },
+        test_output: { type: "string", description: "测试输出摘要" },
+      },
+      required: ["issue_number", "review_status", "test_status"],
+    },
+  },
+  {
+    name: "list_reviews",
+    description: "列出所有 review 记录 (.omni-wf/reviews/)",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_review",
+    description: "读取指定 review 记录的完整内容",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        issue_number: { type: "number", description: "GitHub Issue 编号" },
+      },
+      required: ["issue_number"],
+    },
+  },
+  {
+    name: "validate_phase_transition",
+    description: "验证当前阶段是否可以推进到下一阶段（检查 evidence、reviews 等）",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        from: {
+          type: "string",
+          enum: ["THINK", "PLAN", "ISSUES", "BUILD", "TEST", "SHIP"],
+          description: "当前阶段",
+        },
+        to: {
+          type: "string",
+          enum: ["THINK", "PLAN", "ISSUES", "BUILD", "TEST", "SHIP", "DONE"],
+          description: "目标阶段",
+        },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
     name: "advance_phase",
-    description: "推进工作流到下一阶段",
+    description: "推进工作流到下一阶段（必须提供 evidence）",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -333,8 +448,12 @@ const TOOLS = [
           enum: ["THINK", "PLAN", "ISSUES", "BUILD", "TEST", "SHIP", "DONE"],
           description: "目标阶段",
         },
+        evidence: {
+          type: "string",
+          description: "阶段完成证据描述（强制要求）",
+        },
       },
-      required: ["to"],
+      required: ["to", "evidence"],
     },
   },
 ];
@@ -347,6 +466,7 @@ function handleTool(name: string, args: any): any {
       const prds = extractChecklistItems(state, "PRDs");
       const issues = extractChecklistItems(state, "GitHub Issues");
       const completed = extractChecklistItems(state, "Completed Phases");
+      const reviewStats = getReviewStats();
       return {
         phase: fm["Current Phase"] || fm.Phase || "IDLE",
         stage: fm["Current Stage"] || fm.Stage || "none",
@@ -356,6 +476,7 @@ function handleTool(name: string, args: any): any {
         prdCount: prds.length,
         issueCount: issues.length,
         completedPhases: completed.filter((l) => l.startsWith("- [x]")).map((l) => l.replace(/^- \[[xX]\] /, "")),
+        reviewStats,
         raw: state,
       };
     }
@@ -434,7 +555,88 @@ function handleTool(name: string, args: any): any {
       return { success: true, number: args.number, output: result };
     }
 
+    case "log_review": {
+      const now = new Date().toISOString();
+      const reviewFile = join(REVIEWS_DIR, `issue-${args.issue_number}.md`);
+      const body = `# Review Record: Issue #${args.issue_number}
+
+## Date: ${now}
+
+## Review Status: ${args.review_status}
+## Review Output
+${args.review_output || "(none recorded)"}
+
+## QA Status: ${args.qa_status || "N/A"}
+## QA Output
+${args.qa_output || "(none recorded)"}
+
+## Test Status: ${args.test_status}
+## Test Output
+${args.test_output || "(none recorded)"}
+
+## Overall: ${args.review_status === "PASS" && (args.qa_status === "PASS" || args.qa_status === "N/A") && args.test_status === "PASS" ? "PASS" : "FAIL"}
+`;
+      writeFileSync(reviewFile, body, "utf-8");
+      return { success: true, issue_number: args.issue_number, file: `issue-${args.issue_number}.md` };
+    }
+
+    case "list_reviews": {
+      return { reviews: listMdFiles(REVIEWS_DIR) };
+    }
+
+    case "get_review": {
+      const file = join(REVIEWS_DIR, `issue-${args.issue_number}.md`);
+      if (!existsSync(file)) return { error: "Review record not found", issue_number: args.issue_number };
+      return { issue_number: args.issue_number, content: readFileSync(file, "utf-8") };
+    }
+
+    case "validate_phase_transition": {
+      const state = readState();
+      const from = args.from;
+      const to = args.to;
+      const errors: string[] = [];
+
+      // Check if from phase is actually completed
+      if (!state.includes(`- [x] ${from}`)) {
+        errors.push(`Phase ${from} is not marked as completed in state.md`);
+      }
+
+      // Check if evidence exists for from phase
+      const evidenceSection = extractSection(state, from);
+      if (!evidenceSection || evidenceSection.includes("[待完成]") || evidenceSection.includes("[待记录]")) {
+        errors.push(`Phase ${from} completion evidence is missing or incomplete`);
+      }
+
+      // Phase-specific checks
+      if (from === "BUILD") {
+        const reviewStats = getReviewStats();
+        if (reviewStats.total === 0) {
+          errors.push("BUILD phase: no review records found in .omni-wf/reviews/");
+        }
+        if (reviewStats.failed > 0) {
+          errors.push(`BUILD phase: ${reviewStats.failed} review(s) failed`);
+        }
+      }
+
+      if (from === "TEST") {
+        const testEvidence = extractSection(state, "TEST");
+        if (!testEvidence.includes("PASS")) {
+          errors.push("TEST phase: no PASS evidence found in test results");
+        }
+      }
+
+      if (errors.length > 0) {
+        return { valid: false, errors, from, to };
+      }
+
+      return { valid: true, errors: [], from, to, message: "Phase transition validated. User confirmation still required." };
+    }
+
     case "advance_phase": {
+      if (!args.evidence || args.evidence.trim().length < 10) {
+        return { error: "advance_phase requires 'evidence' field (min 10 chars). Describe what was completed in this phase." };
+      }
+
       const state = readState();
       const phases = ["THINK", "PLAN", "ISSUES", "BUILD", "TEST", "SHIP", "DONE"];
       const fromMatch = state.match(/^## Current Phase:\s*(.*)$/m);
@@ -450,8 +652,12 @@ function handleTool(name: string, args: any): any {
         updated = updated.replace(regex, `- [x] ${to}`);
       }
 
+      // Update the from-phase evidence section
+      const evidenceRegex = new RegExp(`(### ${from} Phase[\\s\\S]*?## User Confirmation: ).*?$`, "m");
+      updated = updated.replace(evidenceRegex, `$1Approved via advance_phase. Evidence: ${args.evidence.replace(/"/g, "'")}`);
+
       writeState(updated);
-      return { success: true, from, to };
+      return { success: true, from, to, evidence: args.evidence };
     }
 
     default:
