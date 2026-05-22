@@ -1,0 +1,26 @@
+{
+  "name": "omni-wf",
+  "version": "0.1.0",
+  "description": "Omni Workflow — 自主开发工作流编排器 (SKILL.md + MCP Server)",
+  "type": "module",
+  "scripts": {
+    "build": "bun build mcp-server/src/server.ts --outdir mcp-server/dist --target node",
+    "dev": "bun mcp-server/src/server.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/omni-wf"
+  }
+}

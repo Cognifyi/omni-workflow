@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Omni Workflow Setup — install skill + optional MCP server
+set -euo pipefail
+
+REPO="$(cd "$(dirname "$0")" && pwd)"
+SKILL_NAME="omni-wf"
+QUIET=0
+HOST="claude"
+INSTALL_MCP=0
+
+log() { [ "$QUIET" -eq 0 ] && echo "$@" || true; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -q|--quiet) QUIET=1; shift ;;
+    --host) HOST="$2"; shift 2 ;;
+    --mcp) INSTALL_MCP=1; shift ;;
+    *) shift ;;
+  esac
+done
+
+# ─── 依赖检查 ─────────────────────────────────────────────
+log "=== Omni Workflow Setup ==="
+log ""
+
+if ! command -v git >/dev/null 2>&1; then
+  echo "Error: git is required." >&2
+  exit 1
+fi
+
+# ─── 安装技能 ─────────────────────────────────────────────
+install_skill_dir() {
+  local dest="$1"
+  local skill_src="$REPO/$SKILL_NAME"
+
+  mkdir -p "$dest"
+
+  if [ -e "$dest/$SKILL_NAME" ] && [ ! -L "$dest/$SKILL_NAME" ]; then
+    rm -rf "$dest/$SKILL_NAME"
+  fi
+
+  ln -sfn "$skill_src" "$dest/$SKILL_NAME"
+  log "  Linked skill: $SKILL_NAME → $skill_src"
+}
+
+# Claude Code
+CLAUDE_SKILLS="$HOME/.claude/skills"
+if [ -d "$CLAUDE_SKILLS" ]; then
+  install_skill_dir "$CLAUDE_SKILLS"
+fi
+
+# OpenCode
+OPENCODE_SKILLS="$HOME/.config/opencode/skills"
+if [ -d "$OPENCODE_SKILLS" ]; then
+  install_skill_dir "$OPENCODE_SKILLS"
+fi
+
+# Codex
+CODEX_SKILLS="$HOME/.codex/skills"
+if [ -d "$CODEX_SKILLS" ]; then
+  install_skill_dir "$CODEX_SKILLS"
+fi
+
+# Factory
+FACTORY_SKILLS="$HOME/.factory/skills"
+if [ -d "$FACTORY_SKILLS" ]; then
+  install_skill_dir "$FACTORY_SKILLS"
+fi
+
+# ─── MCP Server（可选）────────────────────────────────────
+if [ "$INSTALL_MCP" -eq 1 ]; then
+  log ""
+  log "Installing MCP server..."
+
+  if ! command -v bun >/dev/null 2>&1; then
+    echo "Warning: bun is required for MCP server. Skipping." >&2
+    echo "  Install bun: https://bun.sh" >&2
+  else
+    cd "$REPO"
+    bun install
+    bun run build
+    log "  MCP server built: $REPO/mcp-server/dist/server.js"
+    log ""
+    log "To register with Claude Desktop, add to your claude_desktop_config.json:"
+    log '  {'
+    log '    "mcpServers": {'
+    log '      "omni-wf": {'
+    log '        "command": "bun",'
+    log "        \"args\": [\"$REPO/mcp-server/src/server.ts\"]"
+    log '      }'
+    log '    }'
+    log '  }'
+  fi
+fi
+
+# ─── 完成 ────────────────────────────────────────────────
+log ""
+log "=== Setup complete ==="
+log ""
+log "Invoke the workflow in Claude Code with: /omni-wf"
+log ""
+log "State directory will be created in each repo you use it: ./.omni-wf/"
+log ""
+
+if [ "$INSTALL_MCP" -eq 0 ]; then
+  log "To also install the MCP server, re-run with: ./setup --mcp"
+fi
