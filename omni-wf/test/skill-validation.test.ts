@@ -43,7 +43,7 @@ describe("SKILL.md structure", () => {
   });
 
   it("has CONSTRUCTION per-Issue review enforcement", () => {
-    expect(skillContent).toMatch(/### 2\.3 Per-Issue Review/);
+    expect(skillContent).toMatch(/### 2\.4 Per-Issue Review/);
     expect(skillContent).toMatch(/\/review/);
     expect(skillContent).toMatch(/必须.*review/);
   });

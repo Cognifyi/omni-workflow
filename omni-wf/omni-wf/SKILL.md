@@ -15,20 +15,21 @@ triggers:
 
 # Omni Workflow — 自主开发工作流
 
-## CRITICAL — 执行约束（违反 = 立即停止，无例外）
+## CRITICAL — 执行约束（违反 = 自动修正并记录，无例外）
 
 **本工作流的所有阶段和子阶段都是强制的。严禁跳过、简化或主观修改。**
+发现违规时优先自动修正（回退到正确阶段、补齐遗漏产出物），将修正记录到 state.md，仅当无法自修正时才暂停向用户报告。
 
 ### 禁止行为
 
-| 禁止项 | 说明 | 违规后果 |
+| 禁止项 | 说明 | 违规处理 |
 |--------|------|---------|
-| 跳过阶段 | 不得以任何理由跳过 INCEPTION / CONSTRUCTION / TEST / SHIP | 立即停止，报告用户 |
-| 跳过子阶段 | 不得跳过 INCEPTION 中的 office-hours / ceo-review / eng-review / design-review / prd-finalization | 立即停止，报告用户 |
-| 提前进入下一阶段 | 当前阶段未提供可验证的完成证据前，不得进入下一阶段 | 立即停止，报告用户 |
-| 替换 skill 调用 | 不得以其他操作替代文档中明确要求的 `/skill-name` | 立即停止，报告用户 |
-| 主观判断替代规则 | 不得以"学习项目"、"足够简单"等理由覆盖路由规则 | 立即停止，报告用户 |
-| 省略证据记录 | 每个子阶段完成后必须记录产出物，不得省略 | 立即停止，报告用户 |
+| 跳过阶段 | 不得以任何理由跳过 INCEPTION / CONSTRUCTION / TEST / SHIP | 自动回退到被跳过的阶段起点，补齐遗漏产出物 |
+| 跳过子阶段 | 不得跳过 INCEPTION 中的 office-hours / ceo-review / eng-review / design-review / prd-finalization | 自动回退到被跳过的子阶段，完整执行后记录证据 |
+| 提前进入下一阶段 | 当前阶段未提供可验证的完成证据前，不得进入下一阶段 | 自动回退到当前阶段，补齐证据后重新自验证 |
+| 替换 skill 调用 | 不得以其他操作替代文档中明确要求的 `/skill-name` | 记录替换行为，尝试重新调用正确 skill，记录结果 |
+| 主观判断替代规则 | 不得以"学习项目"、"足够简单"等理由覆盖路由规则 | 记录判断依据，按文档规则重新执行，记录偏差 |
+| 省略证据记录 | 每个子阶段完成后必须记录产出物，不得省略 | 回退到该子阶段重新执行并记录产出物 |
 
 ### 强制要求
 
@@ -236,10 +237,11 @@ INCEPTION (需求明确 + 架构锁定)
 
 CONSTRUCTION (垂直切片编码)
   ├── 2.1 Issue Split       → /to-issues         → 产出: GitHub Issues (omni-wf label)
-  ├── 2.2 Per-Issue TDD   → /tdd               → 产出: 代码 + 测试 (引入 aidlc construction 规范)
-  ├── 2.3 Per-Issue Review → /review            → 产出: .omni-wf/reviews/issue-NNN.md
-  ├── 2.4 Per-Issue QA    → /qa                → 产出: QA 报告 (条件: 前端 Issue)
-  └── 2.5 Per-Issue Test  → npm test           → 产出: 测试通过记录
+  ├── 2.2 Context Mgmt      → run_subagent       → 产出: 隔离上下文 + 干净执行
+  ├── 2.3 Per-Issue TDD     → /tdd               → 产出: 代码 + 测试 (引入 aidlc construction 规范)
+  ├── 2.4 Per-Issue Review  → /review            → 产出: .omni-wf/reviews/issue-NNN.md
+  ├── 2.5 Per-Issue QA      → /qa                → 产出: QA 报告 (条件: 前端 Issue)
+  └── 2.6 Per-Issue Test    → npm test           → 产出: 测试通过记录
 
 TEST (系统集成验证)
   ├── 3.1 Integration Tests
@@ -622,7 +624,144 @@ EOF
 
 ---
 
-### 2.2 Per-Issue TDD — 测试驱动编码（引入 aidlc construction 规范）
+### 2.2 Context Management & Subagent Execution — 长任务上下文隔离
+
+**目标**：当 CONSTRUCTION 阶段任务量巨大、上下文接近限额时，将单个 Issue 的完整 TDD+Review+Test 循环委托给 subagent，保持主 agent（Orchestrator）上下文干净。
+
+**为什么需要**：
+- 巨大长任务的完整 CONSTRUCTION 阶段可能涉及数十个 Issue、数千行变更
+- 主 agent 若累积全部 TDD 讨论、review 细节、测试输出，极易超出 context 限额
+- subagent 在隔离上下文中执行单一 Issue，完成后只向主 agent 回传**结果摘要**
+
+---
+
+#### 2.2.1 执行模式选择
+
+主 agent 根据以下规则决定直接执行或委托 subagent：
+
+| 条件 | 模式 | 说明 |
+|------|------|------|
+| Issue 涉及文件 < 20 个，预估变更 < 500 行，上下文充裕 | **直接执行** | 主 agent 在现有上下文中完成 TDD |
+| Issue 涉及文件 >= 20 个，或预估变更 >= 500 行，或上下文 > 70% | **subagent 委托** | 将当前 Issue 委托给 subagent |
+| 多个 Issue 无互相依赖 | **并行 subagent** | 同时启动多个 subagent |
+| 用户明确要求 | **subagent 委托** | 优先使用 subagent |
+
+---
+
+#### 2.2.2 上下文边界协议
+
+```
+┌─────────────────────────────┐      ┌─────────────────────────────┐
+│     主 agent (Orchestrator)  │      │   subagent (Issue Executor)  │
+├─────────────────────────────┤      ├─────────────────────────────┤
+│ 维护完整 state.md           │◄────►│ 只接收"最小上下文包"        │
+│ 编排 Issue 执行顺序         │      │ 独立执行 TDD + Review + Test │
+│ 验证 subagent 产出          │      │ 不访问其他 Issue / PRD      │
+│ 更新全局状态                │◄────►│ 产出回传后由主 agent 验证   │
+│ 决策冲突时裁决              │      │ 不保留跨 Issue 的记忆        │
+└─────────────────────────────┘      └─────────────────────────────┘
+```
+
+**主 agent 绝不向 subagent 传递**：
+- 完整 state.md（只传递当前 Issue 相关的片段）
+- 其他 Issue 的详细内容
+- 上游阶段（INCEPTION）的完整讨论记录
+- 与工作流编排无关的全局上下文
+
+---
+
+#### 2.2.3 最小上下文包（Context Package）
+
+主 agent 为每个 subagent 构建一个干净的上下文包：
+
+```json
+{
+  "issue_id": "NNN",
+  "issue_title": "User authentication with JWT",
+  "acceptance_criteria": [
+    "User can login with email/password",
+    "JWT token is issued on successful auth",
+    "Token expires after 24h"
+  ],
+  "relevant_files": [
+    "src/auth/service.ts",
+    "src/auth/routes.ts",
+    "tests/auth.test.ts"
+  ],
+  "related_decisions": [
+    "DECISION-003-use-jwt",
+    "DECISION-005-bcrypt-for-password"
+  ],
+  "project_root": "/path/to/repo",
+  "test_command": "bun test",
+  "constraints": [
+    "use_existing_patterns",
+    "no_hardcode_secrets",
+    "follow_aidlc_construction_rules"
+  ],
+  "current_branch": "feat/omni-wf-mvp"
+}
+```
+
+---
+
+#### 2.2.4 subagent 执行流程
+
+```
+1. 主 agent 评估当前 Issue 规模和上下文余量
+2. 若需 subagent：构建最小上下文包
+3. 调用 run_subagent（profile: subagent_general）
+   └── subagent 接收上下文包，在隔离环境中执行：
+       a. TDD 循环（RED → GREEN → Refactor）
+       b. Self-Review（按 2.4 Review 检查表自检）
+       c. 运行项目测试
+       d. 整理产出物摘要
+4. subagent 返回结构化结果：
+   {
+     "files_changed": [...],
+     "test_results": { "passed": N, "failed": 0 },
+     "self_review": { "status": "PASS", "findings": [...] },
+     "evidence_summary": "实现 JWT auth，3 个测试通过，自检无问题"
+   }
+5. 主 agent 验证：
+   a. 检出 subagent 修改的文件
+   b. 运行项目测试确认无回归
+   c. 检查产出物是否满足验收标准
+   d. 补充执行 `/review`（gstack 正式 review）
+   e. 若涉及前端变更，执行 `/qa`
+6. 验证通过 → 更新 state.md，关闭 Issue
+   验证不通过 → 打回 subagent 并附带修正指令
+```
+
+---
+
+#### 2.2.5 subagent 失败处理
+
+| 场景 | 处理策略 |
+|------|---------|
+| subagent 执行失败（crash / timeout） | 主 agent 记录原因，重试一次（带修正上下文），仍失败则接管手动执行 |
+| subagent 产出不满足验收标准 | 主 agent 分析偏差，生成具体修正指令，重新委托或手动修复 |
+| subagent 修改导致项目测试失败 | 主 agent 运行 `/investigate` 定位问题，打回 subagent 或自行修复 |
+| subagent 上下文超限 | 拆分为更细粒度的子任务（子-Issue），分别委托 |
+
+---
+
+#### 2.2.6 并行执行规则
+
+- **无依赖的 Issue** 可以并行启动多个 subagent（推荐最多 3 个并发，避免 I/O 冲突）
+- **有依赖的 Issue** 必须等前置 Issue 关闭后才能启动 subagent
+- 主 agent 在 state.md 中维护执行队列：
+
+```markdown
+## Subagent Queue
+- Running: #42 (auth), #43 (session)
+- Pending: #44 (profile, blocked by #42)
+- Completed: #41 (setup)
+```
+
+---
+
+### 2.3 Per-Issue TDD — 测试驱动编码（引入 aidlc construction 规范）
 
 **目标**：为每个 Issue 编写测试 + 实现，遵循垂直切片原则。
 
@@ -674,7 +813,7 @@ EOF
 
 ---
 
-### 2.3 Per-Issue Review — 代码审查（必须）
+### 2.4 Per-Issue Review — 代码审查（必须）
 
 **目标**：对每个 Issue 的代码进行安全性和质量审查。
 
@@ -700,7 +839,7 @@ EOF
 
 ---
 
-### 2.4 Per-Issue QA — 前端验证（条件：Issue 涉及前端变更时必须执行）
+### 2.5 Per-Issue QA — 前端验证（条件：Issue 涉及前端变更时必须执行）
 
 **目标**：验证前端 Issue 的交互和视觉质量。
 
@@ -717,7 +856,7 @@ EOF
 
 ---
 
-### 2.5 Per-Issue Test — 项目测试（必须）
+### 2.6 Per-Issue Test — 项目测试（必须）
 
 **目标**：确保当前 Issue 不破坏现有功能。
 
@@ -730,13 +869,13 @@ EOF
 
 ---
 
-### 2.6 关闭 Issue（只有 2.3-2.5 全部通过后才能执行）
+### 2.7 关闭 Issue（只有 2.3-2.6 全部通过后才能执行）
 
 ```bash
 gh issue close NNN --comment "Completed via omni-wf CONSTRUCTION phase. Review: PASS. QA: [PASS/N/A]. Tests: PASS."
 ```
 
-### 2.7 记录完成证据（每个 Issue 必须）
+### 2.8 记录完成证据（每个 Issue 必须）
 
 更新 state.md 的 CONSTRUCTION Phase Evidence：
 
