@@ -1,6 +1,7 @@
 {
   "name": "omni-wf",
   "skills": [
-    "./omni-wf"
+    "./omni-wf",
+    "./prd-audit"
   ]
 }

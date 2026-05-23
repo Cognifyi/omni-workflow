@@ -270,6 +270,11 @@ SHIP (发布部署)
    - 自动恢复当前状态，展示状态摘要 + 已完成阶段 + 待完成阶段
    - 从 `Current Stage` 自动继续执行
 4. **若用户明确要求重新开始**：重置 `state.md` 为 IDLE，清空所有 `pending` 和 `evidence`。
+5. **若用户通过 `/prd-audit` 入口触发**：
+   - 说明：用户已有 PRD，希望跳过完整 INCEPTION 评审，快速进入构建
+   - 处理：当前技能（omni-wf）不直接处理 `/prd-audit`，将控制权交给 `prd-audit` skill
+   - `prd-audit` 完成审查和 Issue 拆分后，会初始化 state.md 并标记 INCEPTION 完成，然后回到 omni-wf 的 CONSTRUCTION 阶段
+   - 从 CONSTRUCTION 开始，所有后续规则、产出物、阶段转换门**完全继承本文档规范**
 
 ### state.md 初始化模板
 
@@ -1205,3 +1210,6 @@ fi
 >
 > 工作流将按以下顺序执行：
 > INCEPTION（需求明确 + 架构锁定）→ CONSTRUCTION（垂直切片编码 + 审查）→ TEST（系统集成验证）→ SHIP（发布部署）
+>
+> 若你已有 PRD 并希望快速审查后进入构建，使用 `/prd-audit` 替代入口：
+> PRD_AUDIT（PRD 审查 + Bug 发现 + 改进建议）→ CONSTRUCTION → TEST → SHIP

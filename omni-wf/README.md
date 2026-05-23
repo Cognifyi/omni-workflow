@@ -38,7 +38,7 @@ The agent will:
 | Mode | What it is | When to use |
 |------|-----------|-------------|
 | **SKILL.md** | Agent-readable prompt orchestration | Claude Code, OpenCode, Codex |
-| **MCP Server** | 17-tool stdio server for tool-based driving | Claude Desktop, any MCP client |
+| **MCP Server** | 20-tool stdio server for tool-based driving | Claude Desktop, any MCP client |
 
 Install the skill:
 
@@ -70,12 +70,14 @@ Build the server:
 ```bash
 bun install
 bun build          # outputs mcp-server/dist/server.js
-bun test           # 14 tests — skill validation + MCP integration
+bun test           # 17 tests — skill validation + MCP integration
 ```
 
 ---
 
 ## Workflow pipeline
+
+### Standard entry: `/omni-wf`
 
 ```
 INCEPTION (requirements + architecture lock)
@@ -106,6 +108,23 @@ SHIP (release + deploy)
   ├── 4.3 Release           → /ship
   ├── 4.4 Deploy            → /land-and-deploy
   └── 4.5 Canary            → /canary
+```
+
+### Alternative entry: `/prd-audit`
+
+For when you already have a PRD and want to skip the full INCEPTION review cycle:
+
+```
+PRD_AUDIT (review existing PRD + discover bugs + suggest improvements)
+  ├── 0.1 PRD Load          → read local file or GitHub Issue
+  ├── 1.1 Completeness Check → score 0-10, flag missing sections
+  ├── 1.2 Bug/Risk Review   → CRITICAL / HIGH / MEDIUM / LOW findings
+  ├── 1.3 Improvement Review → P0 / P1 / P2 opportunities
+  ├── 2.0 User Choice        → A (bugs only) / B (all bugs) / C (+P0) / D (+P1)
+  ├── 3.0 PRD Revision      → apply chosen fixes to PRD
+  └── 4.0 Issue Split       → /to-issues         → output: GitHub Issues (omni-wf label)
+
+→ then continues with CONSTRUCTION → TEST → SHIP exactly as standard entry
 ```
 
 ### Cross-system mapping
@@ -164,8 +183,10 @@ The orchestrator only sees the verdict. Context stays clean.
 omni-wf/
 ├── omni-wf/
 │   └── SKILL.md              # The orchestrator skill (prompt layer)
+├── prd-audit/
+│   └── SKILL.md              # PRD review entry skill — audit → fix → to-issues
 ├── mcp-server/
-│   ├── src/server.ts         # MCP server — 17 tools, evidence validation
+│   ├── src/server.ts         # MCP server — 20 tools, evidence validation
 │   └── dist/server.js          # Built output
 ├── bin/
 │   └── omni-wf-state         # Bash helper for state/PRD/issue ops
@@ -174,7 +195,7 @@ omni-wf/
 │   └── mcp-server.test.ts         # MCP server integration tests
 ├── docs/
 │   └── workflow-guide.md     # Extended documentation
-├── setup                     # Installer (skill + MCP)
+├── setup                     # Installer (skills + MCP)
 ├── package.json
 └── tsconfig.json
 ```
