@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] — 2026-05-23
+
+### Added
+
+- **prd-audit skill** — Alternative entry point for when you already have a PRD
+  - Phase 0: PRD load (local file, GitHub Issue, or pasted content)
+  - Phase 1: Three-dimension PRD review (completeness, bugs/risks, improvements)
+  - Phase 2: User choice A/B/C/D (fix scope selection)
+  - Phase 3: PRD revision based on chosen scope
+  - Phase 4: Issue split via `/to-issues`
+  - Phase 5: Seamless handoff to omni-wf CONSTRUCTION → TEST → SHIP
+- **MCP Server extended to 20 tools** — Added 3 PRD audit tools
+  - `audit_prd`: record structured audit findings to `.omni-wf/prd-audits/`
+  - `get_prd_audit`: read a specific PRD audit report
+  - `list_prd_audits`: list all audit reports with score and verdict
+- **Setup script** — Now installs both `omni-wf` and `prd-audit` skills
+- **Plugin manifest** — `.claude-plugin/plugin.json` registers both skills
+- **Tests** — 17 passing tests (added prd-audit SKILL.md structure validation + 3 MCP integration tests)
+
 ## [0.2.0] — 2026-05-22
 
 ### Added

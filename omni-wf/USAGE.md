@@ -13,6 +13,7 @@ Omni Workflow is a **self-driving development pipeline**. You describe what you 
 | **MVP sprint** | `/office-hours` reframes the idea, `/autoplan` runs all reviews in one command, then TDD builds vertical slices fast |
 | **Production hotfix** | Skips INCEPTION if state.md shows it's a pure CONSTRUCTION task; still enforces TDD + review before merge |
 | **Multi-week project with interruptions** | `state.md` is a checkpoint system. `/context-save` before you leave, `/context-restore` when you're back. The agent resumes exactly where it stopped |
+| **PRD audit before build** | `/prd-audit` reviews an existing PRD for bugs and improvements, lets you pick the fix scope, then splits into Issues and enters CONSTRUCTION |
 
 **Not for:**
 - One-line typo fixes (overhead exceeds value)
@@ -217,6 +218,28 @@ Please save context before every major phase transition so I can resume later.
 
 ---
 
+### Example 6: PRD audit entry (skip full INCEPTION)
+
+```
+I have a PRD at docs/prds/001-notification-system.md. Please audit it before we build.
+
+The PRD was written by another team. I want to make sure it's complete and catch any bugs or risks before we start coding.
+```
+
+**What happens:**
+1. `/prd-audit` loads the PRD from `docs/prds/001-notification-system.md`
+2. **Completeness Check**: scores the PRD 0-10, flags missing sections (e.g. "Error Handling" and "NFR" missing)
+3. **Bug/Risk Review**: discovers 2 HIGH risks ("no rate limiting on email API", "no fallback for Slack webhook failure") and 1 CRITICAL ("user preference table lacks unique constraint on user_id + channel")
+4. **Improvement Review**: suggests P0 observability ("add delivery metrics") and P1 cost optimization ("batch email sends")
+5. Agent presents summary and asks: Option A/B/C/D?
+6. You choose **C** (fix all bugs + P0 improvements)
+7. Agent revises the PRD in-place, saves audit report to `.omni-wf/prd-audits/AUDIT-001-notification-system.md`
+8. `/to-issues` creates Issues: "Schema + migration", "Email delivery with rate limit", "Slack webhook with fallback", "Delivery metrics"
+9. Agent initializes `state.md` with INCEPTION marked complete, enters CONSTRUCTION
+10. Standard omni-wf CONSTRUCTION → TEST → SHIP continues
+
+---
+
 ## Anti-patterns (what breaks the workflow)
 
 | Anti-pattern | Why it breaks | What to do instead |
@@ -261,5 +284,6 @@ Show me the evidence for INCEPTION. Did we record all decisions?
 | MVP 快速验证 | 描述想法 + "2 天原型，激进裁剪范围" |
 | 生产 hotfix | 错误信息 + 相关 commit + "只修复最小范围" |
 | 多周项目 | 高层描述 + "我会频繁中断，请保存上下文" |
+| 已有 PRD 审查后构建 | `/prd-audit docs/prds/001-xxx.md` → 按提示选择修复范围 |
 
 完整工作流规范见 [omni-wf/SKILL.md](omni-wf/SKILL.md)。
