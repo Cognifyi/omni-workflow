@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Omni Workflow Setup — install skill + optional MCP server
+# Omni Workflow Setup — install skills + optional MCP server
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
-SKILL_NAME="omni-wf"
+SKILL_NAMES=("omni-wf" "prd-audit")
 QUIET=0
 HOST="claude"
 INSTALL_MCP=0
@@ -29,48 +29,61 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 # ─── 安装技能 ─────────────────────────────────────────────
-install_skill_dir() {
+install_skill() {
   local dest="$1"
-  local skill_src="$REPO/$SKILL_NAME"
+  local name="$2"
+  local skill_src="$REPO/$name"
+
+  if [ ! -d "$skill_src" ]; then
+    log "  Skipping $name (source not found at $skill_src)"
+    return
+  fi
 
   mkdir -p "$dest"
 
-  if [ -e "$dest/$SKILL_NAME" ] && [ ! -L "$dest/$SKILL_NAME" ]; then
-    rm -rf "$dest/$SKILL_NAME"
+  if [ -e "$dest/$name" ] && [ ! -L "$dest/$name" ]; then
+    rm -rf "$dest/$name"
   fi
 
-  ln -sfn "$skill_src" "$dest/$SKILL_NAME"
-  log "  Linked skill: $SKILL_NAME → $skill_src"
+  ln -sfn "$skill_src" "$dest/$name"
+  log "  Linked skill: $name → $skill_src"
+}
+
+install_all_skills() {
+  local dest="$1"
+  for name in "${SKILL_NAMES[@]}"; do
+    install_skill "$dest" "$name"
+  done
 }
 
 # Claude Code
 CLAUDE_SKILLS="$HOME/.claude/skills"
 if [ -d "$CLAUDE_SKILLS" ]; then
-  install_skill_dir "$CLAUDE_SKILLS"
+  install_all_skills "$CLAUDE_SKILLS"
 fi
 
 # Devin / Generic agents
 AGENTS_SKILLS="$HOME/.agents/skills"
 if [ -d "$AGENTS_SKILLS" ]; then
-  install_skill_dir "$AGENTS_SKILLS"
+  install_all_skills "$AGENTS_SKILLS"
 fi
 
 # OpenCode
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 if [ -d "$OPENCODE_SKILLS" ]; then
-  install_skill_dir "$OPENCODE_SKILLS"
+  install_all_skills "$OPENCODE_SKILLS"
 fi
 
 # Codex
 CODEX_SKILLS="$HOME/.codex/skills"
 if [ -d "$CODEX_SKILLS" ]; then
-  install_skill_dir "$CODEX_SKILLS"
+  install_all_skills "$CODEX_SKILLS"
 fi
 
 # Factory
 FACTORY_SKILLS="$HOME/.factory/skills"
 if [ -d "$FACTORY_SKILLS" ]; then
-  install_skill_dir "$FACTORY_SKILLS"
+  install_all_skills "$FACTORY_SKILLS"
 fi
 
 # ─── MCP Server（可选）────────────────────────────────────
@@ -103,7 +116,9 @@ fi
 log ""
 log "=== Setup complete ==="
 log ""
-log "Invoke the workflow in Claude Code with: /omni-wf"
+log "Invoke the workflow in Claude Code with:"
+log "  /omni-wf         — full INCEPTION → CONSTRUCTION → TEST → SHIP"
+log "  /prd-audit       — PRD audit entry: audit PRD → fix → to-issues → CONSTRUCTION → SHIP"
 log ""
 log "State directory will be created in each repo you use it: ./.omni-wf/"
 log ""

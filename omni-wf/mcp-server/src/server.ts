@@ -15,13 +15,14 @@ import { join, basename } from "path";
 const OMNI_DIR = ".omni-wf";
 const STATE_FILE = join(OMNI_DIR, "state.md");
 const REVIEWS_DIR = join(OMNI_DIR, "reviews");
+const PRD_AUDITS_DIR = join(OMNI_DIR, "prd-audits");
 const PRDS_DIR = "docs/prds";
 const DECISIONS_DIR = "docs/decisions";
 const ADRS_DIR = "docs/adr";
 const SPECS_DIR = "docs/specs";
 
 // Ensure dirs exist
-[OMNI_DIR, REVIEWS_DIR, PRDS_DIR, DECISIONS_DIR, ADRS_DIR, SPECS_DIR].forEach((d) => {
+[OMNI_DIR, REVIEWS_DIR, PRD_AUDITS_DIR, PRDS_DIR, DECISIONS_DIR, ADRS_DIR, SPECS_DIR].forEach((d) => {
   try { mkdirSync(d, { recursive: true }); } catch { /* ignore */ }
 });
 
@@ -314,6 +315,39 @@ const TOOLS = [
       required: ["to", "evidence"],
     },
   },
+  {
+    name: "audit_prd",
+    description: "记录 PRD 审查结果到 .omni-wf/prd-audits/",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        prd_id: { type: "string", description: "PRD ID，例如 001-auth-system" },
+        completeness_score: { type: "number", description: "完整性评分 0-10" },
+        missing_sections: { type: "string", description: "缺失章节列表（markdown）" },
+        bug_findings: { type: "string", description: "Bug/风险发现（markdown，按严重度分级）" },
+        improvement_opportunities: { type: "string", description: "改进优化项（markdown，按优先级分级）" },
+        verdict: { type: "string", enum: ["可直接拆分", "需修复后拆分", "需重大修订"], description: "总体结论" },
+        user_choice: { type: "string", enum: ["A", "B", "C", "D"], description: "用户选择 A=仅修Bug B=修全部Bug C=修Bug+P0 D=修Bug+P0+P1" },
+      },
+      required: ["prd_id", "completeness_score", "verdict"],
+    },
+  },
+  {
+    name: "get_prd_audit",
+    description: "读取指定 PRD 的审查报告",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        prd_id: { type: "string", description: "PRD ID，例如 001-auth-system" },
+      },
+      required: ["prd_id"],
+    },
+  },
+  {
+    name: "list_prd_audits",
+    description: "列出所有 PRD 审查记录 (.omni-wf/prd-audits/)",
+    inputSchema: { type: "object" as const, properties: {}, required: [] },
+  },
 ];
 
 function handleTool(name: string, args: any): any {
@@ -471,6 +505,66 @@ function handleTool(name: string, args: any): any {
 
       writeState(updated);
       return { success: true, from, to, evidence: args.evidence };
+    }
+
+    case "audit_prd": {
+      const now = new Date().toISOString();
+      const auditFile = join(PRD_AUDITS_DIR, `AUDIT-${args.prd_id}.md`);
+      const choiceMap: Record<string, string> = {
+        A: "保守：仅修复 CRITICAL + HIGH Bug",
+        B: "标准：修复所有 Bug",
+        C: "积极：修复所有 Bug + P0 改进项",
+        D: "全面：修复所有 Bug + P0 + P1 改进项",
+      };
+      const choiceText = args.user_choice ? choiceMap[args.user_choice] || args.user_choice : "未选择";
+      const body = `# AUDIT-${args.prd_id}
+
+## PRD Under Review
+- PRD ID: ${args.prd_id}
+- Date: ${now}
+
+## Completeness Score: ${args.completeness_score}/10
+
+## Missing Sections
+${args.missing_sections || "(none recorded)"}
+
+## Bug / Risk Findings
+${args.bug_findings || "(none recorded)"}
+
+## Improvement Opportunities
+${args.improvement_opportunities || "(none recorded)"}
+
+## Overall Verdict
+${args.verdict}
+
+## User Choice
+- Selected Option: ${args.user_choice || "N/A"} — ${choiceText}
+`;
+      writeFileSync(auditFile, body, "utf-8");
+      return { success: true, prd_id: args.prd_id, file: `AUDIT-${args.prd_id}.md` };
+    }
+
+    case "get_prd_audit": {
+      const file = join(PRD_AUDITS_DIR, `AUDIT-${args.prd_id}.md`);
+      if (!existsSync(file)) return { error: "PRD audit not found", prd_id: args.prd_id };
+      return { prd_id: args.prd_id, content: readFileSync(file, "utf-8") };
+    }
+
+    case "list_prd_audits": {
+      if (!existsSync(PRD_AUDITS_DIR)) return { audits: [] };
+      const files = readdirSync(PRD_AUDITS_DIR)
+        .filter((f) => f.startsWith("AUDIT-") && f.endsWith(".md"))
+        .map((f) => {
+          const content = readFileSync(join(PRD_AUDITS_DIR, f), "utf-8");
+          const lines = content.split("\n");
+          const scoreLine = lines.find((l) => l.startsWith("## Completeness Score:")) || "";
+          const score = scoreLine.match(/([0-9]+)\/10/)?.[1] || "?";
+          const verdictLine = lines.find((l) => l.startsWith("## Overall Verdict"));
+          const verdict = verdictLine ? lines[lines.indexOf(verdictLine) + 1]?.trim() || "" : "";
+          return { id: f.replace("AUDIT-", "").replace(".md", ""), file: f, score: `${score}/10`, verdict };
+        })
+        .sort((a, b) => a.id.localeCompare(b.id));
+      return { audits: files };
     }
 
     default: return { error: `Unknown tool: ${name}` };

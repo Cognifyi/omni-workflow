@@ -63,7 +63,7 @@ describe("MCP Server", () => {
   let tmpDir: string;
   let server: { send: (msg: any) => void; read: () => Promise<any[]>; kill: () => void };
 
-  it("initializes and lists 17 tools", async () => {
+  it("initializes and lists 20 tools", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "omni-wf-test-"));
     mkdirSync(join(tmpDir, ".omni-wf"), { recursive: true });
     mkdirSync(join(tmpDir, "docs", "prds"), { recursive: true });
@@ -82,13 +82,16 @@ describe("MCP Server", () => {
     expect(initRes?.result?.serverInfo?.name).toBe("omni-wf");
 
     const listRes = msgs.find((m) => m.id === 2);
-    expect(listRes?.result?.tools?.length).toBe(17);
+    expect(listRes?.result?.tools?.length).toBe(20);
 
     const toolNames = listRes?.result?.tools?.map((t: any) => t.name);
     expect(toolNames).toContain("get_workflow_status");
     expect(toolNames).toContain("log_review");
     expect(toolNames).toContain("validate_phase_transition");
     expect(toolNames).toContain("advance_phase");
+    expect(toolNames).toContain("audit_prd");
+    expect(toolNames).toContain("get_prd_audit");
+    expect(toolNames).toContain("list_prd_audits");
   });
 
   it("get_workflow_status returns IDLE for fresh state", async () => {
@@ -143,6 +146,36 @@ describe("MCP Server", () => {
     const indexPath = join(tmpDir, "docs", "decisions", "README.md");
     const indexContent = readFileSync(indexPath, "utf-8");
     expect(indexContent).toContain("use-jwt");
+  });
+
+  it("audit_prd creates audit file", async () => {
+    server.send({ jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "audit_prd", arguments: { prd_id: "001-auth-system", completeness_score: 7, missing_sections: "- NFR\n- Error Handling", bug_findings: "### HIGH\n1. Missing rate limit", improvement_opportunities: "### P0\n1. Add observability", verdict: "需修复后拆分", user_choice: "C" } } });
+    await new Promise((r) => setTimeout(r, 300));
+    const msgs = await server.read();
+    const res = msgs.find((m) => m.id === 8);
+    const result = JSON.parse(res?.result?.content?.[0]?.text || "{}");
+    expect(result.success).toBe(true);
+    expect(result.prd_id).toBe("001-auth-system");
+  });
+
+  it("list_prd_audits returns created audits", async () => {
+    server.send({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "list_prd_audits", arguments: {} } });
+    await new Promise((r) => setTimeout(r, 300));
+    const msgs = await server.read();
+    const res = msgs.find((m) => m.id === 9);
+    const result = JSON.parse(res?.result?.content?.[0]?.text || "{}");
+    expect(result.audits?.length).toBeGreaterThanOrEqual(1);
+    expect(result.audits?.[0]?.id).toBe("001-auth-system");
+  });
+
+  it("get_prd_audit returns audit content", async () => {
+    server.send({ jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "get_prd_audit", arguments: { prd_id: "001-auth-system" } } });
+    await new Promise((r) => setTimeout(r, 300));
+    const msgs = await server.read();
+    const res = msgs.find((m) => m.id === 10);
+    const result = JSON.parse(res?.result?.content?.[0]?.text || "{}");
+    expect(result.prd_id).toBe("001-auth-system");
+    expect(result.content).toContain("7/10");
   });
 
   afterAll(() => {

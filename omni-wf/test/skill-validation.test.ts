@@ -12,6 +12,9 @@ import { join } from "path";
 const SKILL_PATH = join(import.meta.dir, "..", "omni-wf", "SKILL.md");
 const skillContent = readFileSync(SKILL_PATH, "utf-8");
 
+const PRD_AUDIT_SKILL_PATH = join(import.meta.dir, "..", "prd-audit", "SKILL.md");
+const prdAuditSkillContent = readFileSync(PRD_AUDIT_SKILL_PATH, "utf-8");
+
 describe("SKILL.md structure", () => {
   it("has valid frontmatter", () => {
     expect(skillContent).toMatch(/^---\n/);
@@ -64,6 +67,55 @@ describe("SKILL.md structure", () => {
 
   it("has no allowed-tools frontmatter (removed to avoid tool restriction)", () => {
     const frontmatterMatch = skillContent.match(/^---\n([\s\S]*?)\n---/);
+    if (frontmatterMatch) {
+      expect(frontmatterMatch[1]).not.toMatch(/allowed-tools:/);
+    }
+  });
+});
+
+describe("prd-audit SKILL.md structure", () => {
+  it("has valid frontmatter", () => {
+    expect(prdAuditSkillContent).toMatch(/^---\n/);
+    expect(prdAuditSkillContent).toMatch(/name: prd-audit/);
+    expect(prdAuditSkillContent).toMatch(/description: \|/);
+    expect(prdAuditSkillContent).toMatch(/triggers:/);
+  });
+
+  it("has CRITICAL execution constraints section", () => {
+    expect(prdAuditSkillContent).toMatch(/## CRITICAL.*执行约束/);
+    expect(prdAuditSkillContent).toMatch(/禁止行为/);
+    expect(prdAuditSkillContent).toMatch(/强制要求/);
+  });
+
+  it("has all 6 phases defined", () => {
+    expect(prdAuditSkillContent).toMatch(/## Phase 0: PRD 获取/);
+    expect(prdAuditSkillContent).toMatch(/## Phase 1: PRD 审查/);
+    expect(prdAuditSkillContent).toMatch(/## Phase 2: 用户决策/);
+    expect(prdAuditSkillContent).toMatch(/## Phase 3: PRD 修正/);
+    expect(prdAuditSkillContent).toMatch(/## Phase 4: Issue 拆分/);
+    expect(prdAuditSkillContent).toMatch(/## Phase 5: 接入 omni-wf/);
+  });
+
+  it("has three audit dimensions", () => {
+    expect(prdAuditSkillContent).toMatch(/完整性检查/);
+    expect(prdAuditSkillContent).toMatch(/Bug \/ 风险发现/);
+    expect(prdAuditSkillContent).toMatch(/改进优化空间/);
+  });
+
+  it("has user choice options A-D", () => {
+    expect(prdAuditSkillContent).toMatch(/A\. 【保守】/);
+    expect(prdAuditSkillContent).toMatch(/B\. 【标准】/);
+    expect(prdAuditSkillContent).toMatch(/C\. 【积极】/);
+    expect(prdAuditSkillContent).toMatch(/D\. 【全面】/);
+  });
+
+  it("references omni-wf CONSTRUCTION phase", () => {
+    expect(prdAuditSkillContent).toMatch(/CONSTRUCTION/);
+    expect(prdAuditSkillContent).toMatch(/to-issues/);
+  });
+
+  it("has no allowed-tools frontmatter", () => {
+    const frontmatterMatch = prdAuditSkillContent.match(/^---\n([\s\S]*?)\n---/);
     if (frontmatterMatch) {
       expect(frontmatterMatch[1]).not.toMatch(/allowed-tools:/);
     }
