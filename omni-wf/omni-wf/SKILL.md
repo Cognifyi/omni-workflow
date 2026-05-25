@@ -585,6 +585,9 @@ Agent 自验证通过后自动继续执行。
 **调用技能**：`/to-issues`
 
 **执行规则**：
+
+> **入口检查点**：CONSTRUCTION 阶段开始时（或断点恢复后），必须先执行 **2.2.8 Constraint Reinjection Protocol**，确认当前处于 CONSTRUCTION Phase，严禁跳过任何前置阶段。
+
 - 运行 matt-skills 的 `/to-issues`
 - 以 PRD 为输入
 - 获取垂直切片列表
@@ -637,6 +640,8 @@ EOF
 - 巨大长任务的完整 CONSTRUCTION 阶段可能涉及数十个 Issue、数千行变更
 - 主 agent 若累积全部 TDD 讨论、review 细节、测试输出，极易超出 context 限额
 - subagent 在隔离上下文中执行单一 Issue，完成后只向主 agent 回传**结果摘要**
+
+**补充机制**：subagent 隔离了单个 Issue 的执行噪音，但主 agent 仍然会在处理多个 Issue 后累积状态摘要。因此，**2.2.7 Per-Issue Context Reset Protocol** 和 **2.2.8 Constraint Reinjection Protocol** 是必须执行的——即使使用 subagent，每个 Issue 完成后主 agent 也必须主动压缩上下文并重注阶段约束。
 
 ---
 
@@ -801,6 +806,79 @@ EOF
 - Completed: #41 (setup)
 ```
 
+#### 2.2.7 Per-Issue Context Reset Protocol — 上下文重置协议（强制）
+
+**目标**：每个 Issue 完成后主动压缩上下文，防止执行细节累积导致状态漂移。
+
+**为什么必须**：
+- 主 agent 在 CONSTRUCTION 阶段可能处理 10+ 个 Issue
+- 每个 Issue 的 TDD 讨论、review 输出、测试日志、QA 截图都会占据上下文
+- 不清理则 5-6 轮后，CRITICAL 约束和阶段目标被稀释，agent 开始主观简化流程
+
+**执行时机**：每个 Issue 关闭后、下一个 Issue 开始前。
+
+**重置步骤（必须按顺序执行）**：
+
+```
+1. 确认当前 Issue 的所有产出物已落盘：
+   - .omni-wf/reviews/issue-NNN.md 已保存
+   - state.md 已更新（Evidence / Issues completed / Subagent Queue）
+   - GitHub Issue 已关闭（如有）
+
+2. 执行上下文压缩：
+   - 将当前 Issue 的详细执行记录（TDD 过程、review 原始输出、测试日志）标记为【已归档】
+   - 只保留以下信息在活跃上下文中：
+     * Issue 编号与标题
+     * 验收结果（review/QA/tests 的 PASS/FAIL 状态）
+     * 关键发现（若有）
+   - 其余内容从当前工作上下文中【主动移除】
+
+3. 验证压缩效果：
+   - 确认 state.md 中的 CONSTRUCTION Phase Evidence 能完整重建当前进度
+   - 若不能，补录缺失信息后再压缩
+
+4. 重置完成后，进入下一个 Issue 前，必须先执行 2.2.8 Constraint Reinjection Protocol
+```
+
+**禁止行为**：
+- 不得为了"方便"而保留上一个 Issue 的完整 TDD 讨论或 review 原始文本
+- 不得跳过压缩直接进入下一个 Issue
+
+---
+
+#### 2.2.8 Constraint Reinjection Protocol — 强制约束重注协议（强制）
+
+**目标**：每个新 Issue 开始前，将当前阶段的 CRITICAL 约束重新注入活跃上下文，防止规则遗忘。
+
+**执行时机**：每个 Issue 开始前（紧接在 2.2.7 之后，或会话恢复断点后）。
+
+**重注内容（精简版，不可删减）**：
+
+```
+【当前阶段】CONSTRUCTION
+【阶段目标】按依赖顺序对每个垂直切片执行 TDD + Review + QA + Test
+【当前 Issue】#[编号] — [标题]（[已完成数+1 / 总数]）
+
+=== 强制约束（不可覆盖）===
+1. 严禁跳过阶段：CONSTRUCTION 的所有子阶段（2.1-2.8）必须按顺序执行
+2. 严禁替换 skill 调用：/tdd /review /qa 必须以 skill 调用方式执行，不得以手动操作替代
+3. 严禁主观判断替代规则：不得以"足够简单"为由省略 review 或 QA
+4. 产出物落盘：每个子阶段必须有明确的产出物（代码/测试/review文件/记录）
+5. 违规即录：发现偏差先记录到 state.md，优先自动修正，仅严重阻塞时暂停
+
+=== 阶段转换门（CONSTRUCTION 完成标准）===
+- 所有 GitHub Issue 已关闭
+- 每个 Issue 都有对应的 .omni-wf/reviews/issue-NNN.md
+- 每个 review 记录都显示 PASS
+- 每个前端 Issue 都有 QA PASS 记录
+- 所有项目测试通过
+- state.md 中 CONSTRUCTION Phase Evidence 已记录
+```
+
+**重注方式**：
+- 主 agent 在每个 Issue 开始时，将上述内容作为**第一条系统消息**输出给自己
+- 若使用 subagent，将上述内容作为上下文包中的 `phase_constraints` 字段传入
+
 ---
 
 ### 2.3 Per-Issue TDD — 测试驱动编码（引入 aidlc construction 规范）
@@ -810,6 +888,8 @@ EOF
 **调用技能**：`/tdd`
 
 **执行规则**：
+
+> **入口检查点**：执行本阶段前，确认 2.2.8 Constraint Reinjection Protocol 已生效，当前处于 CONSTRUCTION Phase，Issue 编号正确。
 
 #### 2.2.1 Planning（必须）
 
@@ -862,6 +942,9 @@ EOF
 **调用技能**：`/review`
 
 **执行规则**：
+
+> **入口检查点**：执行本阶段前，确认 2.2.8 Constraint Reinjection Protocol 已生效，当前 Issue 的 TDD 阶段已完成，未跳过任何前置子阶段。
+
 - **必须**运行 gstack `/review`
 - 检查全部 9 项：
   1. SQL & 数据安全
@@ -888,6 +971,9 @@ EOF
 **调用技能**：`/qa`
 
 **执行规则**：
+
+> **入口检查点**：执行本阶段前，确认 2.2.8 Constraint Reinjection Protocol 已生效，当前 Issue 的 Review 阶段已通过，未跳过任何前置子阶段。
+
 - **若当前 Issue 涉及前端变更（文件包含 .tsx/.jsx/.css/.vue/.svelte/.html）：必须执行**
 - 运行 gstack `/qa`
 
@@ -903,6 +989,9 @@ EOF
 **目标**：确保当前 Issue 不破坏现有功能。
 
 **执行规则**：
+
+> **入口检查点**：执行本阶段前，确认 2.2.8 Constraint Reinjection Protocol 已生效，当前 Issue 的 Review（及 QA，如适用）阶段已通过，未跳过任何前置子阶段。
+
 - 运行项目测试 suite
 - **必须**全部通过
 
@@ -912,6 +1001,8 @@ EOF
 ---
 
 ### 2.7 关闭 Issue（只有 2.3-2.6 全部通过后才能执行）
+
+> **入口检查点**：关闭前必须自验证：当前 Issue 的 TDD（2.3）→ Review（2.4）→ QA（2.5，如适用）→ Test（2.6）全部通过。若任一环节缺失，回退到该环节重新执行，不得提前关闭。
 
 ```bash
 gh issue close NNN --comment "Completed via omni-wf CONSTRUCTION phase. Review: PASS. QA: [PASS/N/A]. Tests: PASS."
@@ -931,6 +1022,8 @@ gh issue close NNN --comment "Completed via omni-wf CONSTRUCTION phase. Review: 
     - #43 — review: PASS, qa: N/A, tests: PASS
 - User Confirmation: [待确认]
 ```
+
+**Issue 收尾**：当前 Issue 完成后，必须先执行 **2.2.7 Per-Issue Context Reset Protocol** 压缩上下文，再执行 **2.2.8 Constraint Reinjection Protocol** 为下一个 Issue 重注约束，然后才能继续。
 
 **循环**：回到 2.1，直到所有 Issue 完成。
 

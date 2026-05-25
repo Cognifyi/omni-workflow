@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] — 2026-05-25
+
+### Added
+
+- **Per-Issue Context Reset Protocol (2.2.7)** — Mandatory context compression after each Issue completion
+  - Archives detailed execution records (TDD process, review output, test logs)
+  - Retains only Issue ID, acceptance results, and key findings in active context
+  - Validates that state.md can fully reconstruct progress before compression
+- **Constraint Reinjection Protocol (2.2.8)** — Mandatory constraint re-injection before each Issue
+  - Re-injects CRITICAL constraints as first system message
+  - Includes current phase, stage goal, Issue number, and 5 non-overridable constraints
+  - Includes CONSTRUCTION completion gate checklist
+- **Entry checkpoints (2.1-2.7)** — 6 validation points across CONSTRUCTION sub-phases
+  - 2.1 Issue Split: Confirm 2.2.8 executed, current phase is CONSTRUCTION
+  - 2.3 TDD: Confirm 2.2.8 active, Issue number correct
+  - 2.4 Review: Confirm TDD complete, no skipped sub-phases
+  - 2.5 QA: Confirm Review passed, no skipped sub-phases
+  - 2.6 Test: Confirm Review/QA passed, no skipped sub-phases
+  - 2.7 Close Issue: Self-verify 2.3→2.4→2.5→2.6 all passed, rollback if missing
+- **Issue completion loop** — Explicit protocol: 2.2.7 compress → 2.2.8 reinject → next Issue
+- **Subagent integration** — 2.2.7 and 2.2.8 are mandatory even when using subagents
+  - Orchestrator must compress context after subagent returns
+  - Phase constraints passed as `phase_constraints` field in Context Package
+
+### Changed
+
+- **2.2 Context Management** — Added note that subagent isolation doesn't eliminate orchestrator context drift
+- **2.1-2.7 execution rules** — Added entry checkpoints to prevent stage skipping
+
 ## [0.3.0] — 2026-05-23
 
 ### Added
