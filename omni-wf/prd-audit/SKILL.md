@@ -105,6 +105,24 @@ _GH_OK=$(command -v gh >/dev/null 2>&1 && echo "yes" || echo "no")
 echo "OMNI_WF_INSTALLED: $_OMNI_OK"
 echo "MATT_INSTALLED: $_MATT_OK"
 echo "GH_INSTALLED: $_GH_OK"
+
+# --- worktree 探测 ---
+_WORKTREE_BASE="$HOME/.worktrees"
+if [ -n "$_ROOT" ] && [ "$_ROOT" != "." ]; then
+  _REPO_NAME=$(basename "$_ROOT")
+  _SAFE_BRANCH=$(echo "$_BRANCH" | tr '/' '-')
+  _WORKTREE_PATH="$_WORKTREE_BASE/$_REPO_NAME/$_SAFE_BRANCH"
+  if [ -d "$_WORKTREE_PATH" ]; then
+    echo "WORKTREE_PATH: $_WORKTREE_PATH"
+    echo "WORKTREE_STATUS: exists"
+  else
+    echo "WORKTREE_PATH: $_WORKTREE_PATH"
+    echo "WORKTREE_STATUS: not_created"
+  fi
+else
+  echo "WORKTREE_PATH: N/A"
+  echo "WORKTREE_STATUS: not_a_git_repo"
+fi
 ```
 
 ---
@@ -410,6 +428,9 @@ docs/prds/NNN-{short-title}.md
 
 ## Related Decisions
 （如有审查中产生的决策，列出）
+
+## Worktree Path
+~/.worktrees/{repo-name}/{branch-name}
 ```
 
 ### 4.3 记录 Issue 列表
@@ -428,6 +449,13 @@ docs/prds/NNN-{short-title}.md
 
 **目标**：初始化 omni-wf state.md，标记 INCEPTION 已完成，进入 CONSTRUCTION。
 
+### 5.0 准备工作树（强制）
+
+**调用 `/setup-worktree`**：
+- 若 state.md 中已有 `worktree_path`，复用
+- 若不存在，调用 `/setup-worktree` 创建统一目录 `~/.worktrees/{repo-name}/{branch-name}/`
+- 将 `WORKTREE_PATH` 记录到环境，后续所有代码操作均在此 worktree 中执行
+
 ### 5.1 初始化/更新 state.md
 
 若 state.md 不存在，按 omni-wf 模板创建。然后更新：
@@ -436,6 +464,7 @@ docs/prds/NNN-{short-title}.md
 ## Current Phase: CONSTRUCTION
 ## Current Stage: 2.1 Issue Split
 ## Branch: $_BRANCH
+## Worktree Path: [由 /setup-worktree 创建后填充]
 ## Last Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 ## Completed Phases
@@ -457,6 +486,7 @@ docs/prds/NNN-{short-title}.md
 - Evidence: [待记录]
 - Issues completed: [0 / total N]
 - Per-Issue Review Status: [待记录]
+- Worktree Path: [~/.worktrees/{repo}/{branch}]
 - User Confirmation: [待确认]
 
 ## PRDs
@@ -504,6 +534,7 @@ PRD 审查完成，Issue 已创建。
 | `.omni-wf/prd-audits/AUDIT-NNN-xxx.md` | state.md Notes 引用 |
 | GitHub Issues (omni-wf label) | CONSTRUCTION 2.2-2.8 的执行对象 |
 | state.md (INCEPTION 标记完成) | CONSTRUCTION 阶段转换门检查 |
+| `worktree_path` (由 /setup-worktree 创建) | CONSTRUCTION 所有代码操作的执行目录 |
 
 **关键规则**：
 - prd-audit 完成后，Agent 不得在 CONSTRUCTION 中重新启动 INCEPTION 子阶段

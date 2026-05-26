@@ -221,6 +221,24 @@ if [ -f "docs/decisions/README.md" ]; then
 else
   echo "DECISION_INDEX: 0 (no README)"
 fi
+
+# --- worktree 探测 ---
+_WORKTREE_BASE="$HOME/.worktrees"
+if [ -n "$_ROOT" ] && [ "$_ROOT" != "." ]; then
+  _REPO_NAME=$(basename "$_ROOT")
+  _SAFE_BRANCH=$(echo "$_BRANCH" | tr '/' '-')
+  _WORKTREE_PATH="$_WORKTREE_BASE/$_REPO_NAME/$_SAFE_BRANCH"
+  if [ -d "$_WORKTREE_PATH" ]; then
+    echo "WORKTREE_PATH: $_WORKTREE_PATH"
+    echo "WORKTREE_STATUS: exists"
+  else
+    echo "WORKTREE_PATH: $_WORKTREE_PATH"
+    echo "WORKTREE_STATUS: not_created"
+  fi
+else
+  echo "WORKTREE_PATH: N/A"
+  echo "WORKTREE_STATUS: not_a_git_repo"
+fi
 ```
 
 ---
@@ -284,6 +302,7 @@ SHIP (发布部署)
 ## Current Phase: IDLE
 ## Current Stage: none
 ## Branch: $_BRANCH
+## Worktree Path: [由 /setup-worktree 创建后填充]
 ## Started At: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ## Last Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -306,6 +325,7 @@ SHIP (发布部署)
 - Evidence: [待记录]
 - Issues completed: [N / total N]
 - Per-Issue Review Status: [待记录]
+- Worktree Path: [~/.worktrees/{repo}/{branch}]
 - User Confirmation: [待确认]
 
 ### TEST Phase
@@ -588,6 +608,7 @@ Agent 自验证通过后自动继续执行。
 
 > **入口检查点**：CONSTRUCTION 阶段开始时（或断点恢复后），必须先执行 **2.2.8 Constraint Reinjection Protocol**，确认当前处于 CONSTRUCTION Phase，严禁跳过任何前置阶段。
 
+- **首先调用 `/setup-worktree`**：确保当前分支的 worktree 已创建于 `~/.worktrees/{repo-name}/{branch-name}/`，将路径记录到 state.md
 - 运行 matt-skills 的 `/to-issues`
 - 以 PRD 为输入
 - 获取垂直切片列表
@@ -619,6 +640,9 @@ docs/prds/NNN-{title}.md
 ## Related Decisions
 - docs/decisions/DECISION-NNN-xxx.md
 
+## Worktree Path
+~/.worktrees/{repo-name}/{branch-name}
+
 ## Status
 OPEN
 EOF
@@ -642,6 +666,8 @@ EOF
 - subagent 在隔离上下文中执行单一 Issue，完成后只向主 agent 回传**结果摘要**
 
 **补充机制**：subagent 隔离了单个 Issue 的执行噪音，但主 agent 仍然会在处理多个 Issue 后累积状态摘要。因此，**2.2.7 Per-Issue Context Reset Protocol** 和 **2.2.8 Constraint Reinjection Protocol** 是必须执行的——即使使用 subagent，每个 Issue 完成后主 agent 也必须主动压缩上下文并重注阶段约束。
+
+**worktree 隔离**：在委托 subagent 前，调用 `/setup-worktree` 确保当前分支的 worktree 已创建于 `~/.worktrees/` 下。subagent 在 worktree 中执行代码变更，实现物理文件系统隔离。每个 Issue 的最小上下文包中必须包含 `worktree_path`。
 
 ---
 
@@ -704,6 +730,7 @@ EOF
     "DECISION-005-bcrypt-for-password"
   ],
   "project_root": "/path/to/repo",
+  "worktree_path": "/home/user/.worktrees/repo-name/feat-auth-system",
   "test_command": "bun test",
   "constraints": [
     "use_existing_patterns",
@@ -714,6 +741,12 @@ EOF
 }
 ```
 
+**`worktree_path` 说明**：
+- 由 `/setup-worktree` 创建，统一在 `~/.worktrees/{repo-name}/{branch-name}/`
+- subagent 必须在此路径下执行所有代码变更，不得在主 repo 目录直接修改
+- 上下文重置或会话恢复后，agent 通过 state.md 中记录的 `worktree_path` 重新定位工作区
+- 验证 subagent 同样需要在 `worktree_path` 中运行测试和 review
+
 ---
 
 #### 2.2.4 subagent 执行流程
@@ -721,12 +754,17 @@ EOF
 ```
 1. 主 agent 评估当前 Issue 规模和上下文余量
 2. 若需 subagent：构建最小上下文包
-3. 调用 run_subagent（profile: subagent_general）
-   └── subagent 接收上下文包，在隔离环境中执行：
-       a. TDD 循环（RED → GREEN → Refactor）
-       b. Self-Review（按 2.4 Review 检查表自检）
-       c. 运行项目测试
-       d. 整理产出物摘要
+3. **调用 `/setup-worktree` 确保 worktree 就绪**
+   - 若 state.md 中已有当前分支的 `worktree_path`，复用该路径
+   - 若不存在，调用 `/setup-worktree` 创建，并将返回的 `WORKTREE_PATH` 记录到 state.md
+   - 将 `worktree_path` 注入最小上下文包
+4. 调用 run_subagent（profile: subagent_general）
+   └── subagent 接收上下文包（含 worktree_path），在隔离环境中执行：
+       a. 进入 worktree_path 目录
+       b. TDD 循环（RED → GREEN → Refactor）
+       c. Self-Review（按 2.4 Review 检查表自检）
+       d. 运行项目测试
+       e. 整理产出物摘要
 4. subagent 返回结构化结果：
    {
      "files_changed": [...],
@@ -753,7 +791,8 @@ EOF
        "test_command": "bun test",
        "needs_review": true,
        "needs_qa": false,
-       "project_root": "/path/to/repo"
+       "project_root": "/path/to/repo",
+       "worktree_path": "/home/user/.worktrees/repo-name/feat-auth-system"
      }
      ```
    - b. 调用 run_subagent（profile: subagent_general）执行验证：
@@ -1018,8 +1057,8 @@ gh issue close NNN --comment "Completed via omni-wf CONSTRUCTION phase. Review: 
 - Evidence:
   - Issues completed: [N / total N]
   - Per-Issue Review Status:
-    - #42 — review: PASS, qa: PASS, tests: PASS
-    - #43 — review: PASS, qa: N/A, tests: PASS
+    - #42 — review: PASS, qa: PASS, tests: PASS, worktree: ~/.worktrees/labs/feat-auth-system
+    - #43 — review: PASS, qa: N/A, tests: PASS, worktree: ~/.worktrees/labs/feat-auth-system
 - User Confirmation: [待确认]
 ```
 
@@ -1207,6 +1246,7 @@ fi
 ## Current Phase: [IDLE | INCEPTION | CONSTRUCTION | TEST | SHIP]
 ## Current Stage: [具体子阶段名]
 ## Branch: [分支名]
+## Worktree Path: [~/.worktrees/{repo}/{branch}]
 ## Started At: [ISO8601]
 ## Last Updated: [ISO8601]
 
