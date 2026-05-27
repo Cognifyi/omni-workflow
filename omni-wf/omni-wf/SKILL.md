@@ -138,16 +138,66 @@ Omni Workflow 的运行时就是 AI 代理本身。工作流是**提示词管道
 
 ## Preamble (run first)
 
+**执行顺序原则**：先创建/切换到 worktree，所有后续目录创建、文件读取、状态检测都在 worktree 中执行。主目录仅用于 `.gitignore` 检查。
+
 ```bash
-# --- 状态探测 ---
-_OMNI_DIR=".omni-wf"
-_STATE_FILE="$_OMNI_DIR/state.md"
+# ========== STEP 1: 探测 repo 基础信息（在主目录执行） ==========
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+
+echo "BRANCH: $_BRANCH"
+echo "REPO_ROOT: $_ROOT"
+
+# ========== STEP 2: .gitignore 检查（在主目录执行，无需在 worktree 中） ==========
+_GITIGNORE=".gitignore"
+if [ -f "$_GITIGNORE" ]; then
+  if grep -qE "^\.omni-wf/?" "$_GITIGNORE"; then
+    echo "GITIGNORE_OMNI_WF: ok"
+  else
+    echo "" >> "$_GITIGNORE"
+    echo "# Omni Workflow runtime state (auto-added by omni-wf)" >> "$_GITIGNORE"
+    echo ".omni-wf/" >> "$_GITIGNORE"
+    echo "GITIGNORE_OMNI_WF: added"
+  fi
+else
+  echo "# Omni Workflow runtime state (auto-added by omni-wf)" > "$_GITIGNORE"
+  echo ".omni-wf/" >> "$_GITIGNORE"
+  echo "GITIGNORE_OMNI_WF: created"
+fi
+
+# ========== STEP 3: 创建并切换到 worktree（关键！所有后续操作在 worktree 中执行） ==========
+_WORKTREE_BASE="$HOME/.worktrees"
+if [ -n "$_ROOT" ] && [ "$_ROOT" != "." ]; then
+  _REPO_NAME=$(basename "$_ROOT")
+  _SAFE_BRANCH=$(echo "$_BRANCH" | tr '/' '-')
+  _WORKTREE_PATH="$_WORKTREE_BASE/$_REPO_NAME/$_SAFE_BRANCH"
+
+  if [ ! -d "$_WORKTREE_PATH" ]; then
+    mkdir -p "$(dirname "$_WORKTREE_PATH")"
+    git worktree add "$_WORKTREE_PATH" "$_BRANCH"
+    echo "WORKTREE_CREATED: yes"
+  else
+    echo "WORKTREE_EXISTS: yes"
+  fi
+
+  git worktree list | grep "$_WORKTREE_PATH" > /dev/null && echo "WORKTREE_VALID: yes" || echo "WORKTREE_VALID: no"
+
+  # 切换到 worktree — 所有后续操作都在此目录中执行
+  cd "$_WORKTREE_PATH" || exit 1
+  echo "WORKING_DIR: $(pwd)"
+else
+  echo "ERROR: not a git repository, cannot create worktree"
+  exit 1
+fi
+
+# ========== STEP 4: 在 worktree 中创建目录结构 ==========
+_OMNI_DIR=".omni-wf"
+_STATE_FILE="$_OMNI_DIR/state.md"
 
 mkdir -p "$_OMNI_DIR" "$_OMNI_DIR/reviews"
 mkdir -p "docs/prds" "docs/decisions" "docs/adr" "docs/specs"
 
+# ========== STEP 5: 在 worktree 中读取 state.md ==========
 if [ -f "$_STATE_FILE" ]; then
   echo "STATE_FOUND: yes"
   _PHASE=$(grep "^## Current Phase:" "$_STATE_FILE" | sed 's/.*: *//' | tr -d ' \r')
@@ -160,10 +210,7 @@ else
   echo "CURRENT_STAGE: none"
 fi
 
-echo "BRANCH: $_BRANCH"
-echo "REPO_ROOT: $_ROOT"
-
-# --- 流程完整性检查 ---
+# ========== STEP 6: 在 worktree 中执行流程完整性检查 ==========
 if [ -f "$_STATE_FILE" ]; then
   _COMPLETED=$(grep "^## Completed Phases:" "$_STATE_FILE" -A 10 | grep "\[x\]" | awk '{print $2}' | tr '\n' ' ')
   echo "COMPLETED_PHASES: $_COMPLETED"
@@ -184,7 +231,7 @@ if [ -f "$_STATE_FILE" ]; then
   echo "PHASE_SKIP_DETECTED: $_FOUND_SKIP"
 fi
 
-# --- 范围检测 ---
+# ========== STEP 7: 在 worktree 中执行范围检测 ==========
 if git rev-parse --git-dir >/dev/null 2>&1; then
   _DIFF_STAT=$(git diff --stat HEAD 2>/dev/null | tail -1)
   _FILE_COUNT=$(echo "$_DIFF_STAT" | grep -o '[0-9]* file' | grep -o '[0-9]*' || echo "0")
@@ -206,7 +253,7 @@ else
   echo "HAS_DB: 0"
 fi
 
-# --- 依赖检查 ---
+# ========== STEP 8: 依赖检查 ==========
 _GSTACK_OK=$([ -d ~/.claude/skills/gstack ] || [ -d ~/.agents/skills/gstack ] && echo "yes" || echo "no")
 _MATT_OK=$([ -d ~/.claude/skills/tdd ] || [ -d ~/.agents/skills/tdd ] && echo "yes" || echo "no")
 _GH_OK=$(command -v gh >/dev/null 2>&1 && echo "yes" || echo "no")
@@ -214,30 +261,12 @@ echo "GSTACK_INSTALLED: $_GSTACK_OK"
 echo "MATT_INSTALLED: $_MATT_OK"
 echo "GH_INSTALLED: $_GH_OK"
 
-# --- 决策索引更新 ---
+# ========== STEP 9: 在 worktree 中更新决策索引 ==========
 if [ -f "docs/decisions/README.md" ]; then
   _DECISION_COUNT=$(ls -1 docs/decisions/DECISION-*.md 2>/dev/null | wc -l | tr -d ' ')
   echo "DECISION_INDEX: $_DECISION_COUNT entries"
 else
   echo "DECISION_INDEX: 0 (no README)"
-fi
-
-# --- worktree 探测 ---
-_WORKTREE_BASE="$HOME/.worktrees"
-if [ -n "$_ROOT" ] && [ "$_ROOT" != "." ]; then
-  _REPO_NAME=$(basename "$_ROOT")
-  _SAFE_BRANCH=$(echo "$_BRANCH" | tr '/' '-')
-  _WORKTREE_PATH="$_WORKTREE_BASE/$_REPO_NAME/$_SAFE_BRANCH"
-  if [ -d "$_WORKTREE_PATH" ]; then
-    echo "WORKTREE_PATH: $_WORKTREE_PATH"
-    echo "WORKTREE_STATUS: exists"
-  else
-    echo "WORKTREE_PATH: $_WORKTREE_PATH"
-    echo "WORKTREE_STATUS: not_created"
-  fi
-else
-  echo "WORKTREE_PATH: N/A"
-  echo "WORKTREE_STATUS: not_a_git_repo"
 fi
 ```
 
@@ -280,7 +309,34 @@ SHIP (发布部署)
 
 ## Phase 0: 入口与状态恢复
 
-1. **读取 `.omni-wf/state.md`**（如果存在）。提取 `Current Phase`、`Current Stage`、`Phase Completion Evidence`。
+**核心原则**：Preamble 已完成 worktree 创建和切换，主 agent 当前已在 worktree 中。Phase 0 只做状态恢复，不创建目录/不切换目录。
+
+### 0.1 确认工作目录（强制）
+
+**执行检查**：
+
+```bash
+# 确认当前目录是 worktree（不是主目录）
+_CURRENT_PWD=$(pwd)
+_MAIN_REPO=$(git -C "$_ROOT" rev-parse --show-toplevel 2>/dev/null || echo "")
+_CURRENT_REPO=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+
+if [ "$_CURRENT_PWD" = "$_MAIN_REPO" ] || [ "$_CURRENT_REPO" = "$_MAIN_REPO" ]; then
+  echo "ERROR: still in main repo, worktree switch failed"
+  exit 1
+fi
+
+echo "WORKING_DIR: $_CURRENT_PWD"
+echo "WORKING_IN_WORKTREE: yes"
+```
+
+**确认要求**：
+- 主 agent 必须确认当前目录是 worktree，不是主目录
+- 若仍在主目录，说明 Preamble 的 worktree 切换失败，必须报错停止
+
+### 0.2 状态探测与恢复
+
+1. **读取 `.omni-wf/state.md`**（在 worktree 中）。提取 `Current Phase`、`Current Stage`、`Phase Completion Evidence`。
 2. **检查 `PHASE_SKIP_DETECTED`**：
    - 若 `yes`：自动回退到被跳过的阶段起点，在 state.md 记录回退原因
    - 从回退点继续完整执行，补齐所有遗漏产出物
@@ -302,7 +358,7 @@ SHIP (发布部署)
 ## Current Phase: IDLE
 ## Current Stage: none
 ## Branch: $_BRANCH
-## Worktree Path: [由 /setup-worktree 创建后填充]
+## Working Directory: [omni-wf 在 worktree 中执行，此为 worktree 路径]
 ## Started At: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ## Last Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -333,7 +389,6 @@ SHIP (发布部署)
 - Evidence: [待记录]
 - Issues completed: [N / total N]
 - Per-Issue Review Status: [待记录]
-- Worktree Path: [~/.worktrees/{repo}/{branch}]
 - Runtime Verification:
   - 代码探针: [diffstat / read 关键文件确认]
   - 测试探针: [grep 确认非全 skip/todo]
@@ -674,7 +729,7 @@ Agent 自验证通过后自动继续执行。
 
 > **入口检查点**：CONSTRUCTION 阶段开始时（或断点恢复后），必须先执行 **2.2.8 Constraint Reinjection Protocol**，确认当前处于 CONSTRUCTION Phase，严禁跳过任何前置阶段。
 
-- **首先调用 `/setup-worktree`**：确保当前分支的 worktree 已创建于 `~/.worktrees/{repo-name}/{branch-name}/`，将路径记录到 state.md
+- **确认已在 worktree 中**：Phase 0 已将主 agent 切换到 worktree，所有操作在此执行
 - 运行 matt-skills 的 `/to-issues`
 - 以 PRD 为输入
 - 获取垂直切片列表
@@ -706,8 +761,8 @@ docs/prds/NNN-{title}.md
 ## Related Decisions
 - docs/decisions/DECISION-NNN-xxx.md
 
-## Worktree Path
-~/.worktrees/{repo-name}/{branch-name}
+## Working Directory
+omni-wf 在 worktree 中执行，所有操作在此工作空间内完成
 
 ## Status
 OPEN
@@ -732,8 +787,6 @@ EOF
 - subagent 在隔离上下文中执行单一 Issue，完成后只向主 agent 回传**结果摘要**
 
 **补充机制**：subagent 隔离了单个 Issue 的执行噪音，但主 agent 仍然会在处理多个 Issue 后累积状态摘要。因此，**2.2.7 Per-Issue Context Reset Protocol** 和 **2.2.8 Constraint Reinjection Protocol** 是必须执行的——即使使用 subagent，每个 Issue 完成后主 agent 也必须主动压缩上下文并重注阶段约束。
-
-**worktree 隔离**：在委托 subagent 前，调用 `/setup-worktree` 确保当前分支的 worktree 已创建于 `~/.worktrees/` 下。subagent 在 worktree 中执行代码变更，实现物理文件系统隔离。每个 Issue 的最小上下文包中必须包含 `worktree_path`。
 
 ---
 
@@ -796,7 +849,6 @@ EOF
     "DECISION-005-bcrypt-for-password"
   ],
   "project_root": "/path/to/repo",
-  "worktree_path": "/home/user/.worktrees/repo-name/feat-auth-system",
   "test_command": "bun test",
   "constraints": [
     "use_existing_patterns",
@@ -807,11 +859,7 @@ EOF
 }
 ```
 
-**`worktree_path` 说明**：
-- 由 `/setup-worktree` 创建，统一在 `~/.worktrees/{repo-name}/{branch-name}/`
-- subagent 必须在此路径下执行所有代码变更，不得在主 repo 目录直接修改
-- 上下文重置或会话恢复后，agent 通过 state.md 中记录的 `worktree_path` 重新定位工作区
-- 验证 subagent 同样需要在 `worktree_path` 中运行测试和 review
+**注意**：subagent 在 worktree 中执行，无需传递 `worktree_path`。主 agent 和所有 subagent 共享同一个 worktree 工作空间。
 
 ---
 
@@ -820,14 +868,9 @@ EOF
 ```
 1. 主 agent 评估当前 Issue 规模和上下文余量
 2. 若需 subagent：构建最小上下文包
-3. **调用 `/setup-worktree` 确保 worktree 就绪**
-   - 若 state.md 中已有当前分支的 `worktree_path`，复用该路径
-   - 若不存在，调用 `/setup-worktree` 创建，并将返回的 `WORKTREE_PATH` 记录到 state.md
-   - 将 `worktree_path` 注入最小上下文包
-4. 调用 run_subagent（profile: subagent_general）
-   └── subagent 接收上下文包（含 worktree_path），在隔离环境中执行：
-       a. 进入 worktree_path 目录
-       b. TDD 循环（RED → GREEN → Refactor）
+3. 调用 run_subagent（profile: subagent_general）
+   └── subagent 在 worktree 中执行：
+       a. TDD 循环（RED → GREEN → Refactor）
        c. Self-Review（按 2.4 Review 检查表自检）
        d. 运行项目测试
        e. 整理产出物摘要
@@ -857,8 +900,7 @@ EOF
        "test_command": "bun test",
        "needs_review": true,
        "needs_qa": false,
-       "project_root": "/path/to/repo",
-       "worktree_path": "/home/user/.worktrees/repo-name/feat-auth-system"
+       "project_root": "/path/to/repo"
      }
      ```
    - b. 调用 run_subagent（profile: subagent_general）执行验证：
@@ -1224,8 +1266,8 @@ EOF
 - Evidence:
   - Issues completed: [N / total N]
   - Per-Issue Review Status:
-    - #42 — review: PASS, qa: PASS, tests: PASS, worktree: ~/.worktrees/labs/feat-auth-system
-    - #43 — review: PASS, qa: N/A, tests: PASS, worktree: ~/.worktrees/labs/feat-auth-system
+    - #42 — review: PASS, qa: PASS, tests: PASS
+    - #43 — review: PASS, qa: N/A, tests: PASS
 - User Confirmation: [待确认]
 ```
 
@@ -1257,7 +1299,6 @@ EOF
 □ 测试日志经 grep 确认包含真实断言输出（非全 skip/todo），覆盖率 > 0%
 □ 若 HAS_FRONTEND > 0：QA 报告经 grep 确认包含至少 1 张有效截图路径或具体 bug 列表
 □ review 文件经 grep 确认包含具体审查发现（非仅"PASS"两字）
-□ worktree 路径确认存在且包含与主分支不同的真实文件变更
 ```
 
 **结果导向验收**：
@@ -1471,7 +1512,7 @@ fi
 ## Current Phase: [IDLE | INCEPTION | CONSTRUCTION | TEST | SHIP]
 ## Current Stage: [具体子阶段名]
 ## Branch: [分支名]
-## Worktree Path: [~/.worktrees/{repo}/{branch}]
+## Working Directory: [当前工作目录路径（omni-wf 在 worktree 中执行）]
 ## Started At: [ISO8601]
 ## Last Updated: [ISO8601]
 
