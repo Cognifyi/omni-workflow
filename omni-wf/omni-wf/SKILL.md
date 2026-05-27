@@ -318,6 +318,14 @@ SHIP (发布部署)
 - Completed At: [待完成]
 - Evidence: [待记录]
 - Sub-phases completed: [待记录]
+- Runtime Verification:
+  - PRD 探针: [grep 确认 Acceptance Criteria 数量]
+  - SPEC 探针: [grep 确认 Data Flow/Interface Design 存在]
+  - Decision 探针: [read 确认非空模板]
+- Result-Driven Acceptance:
+  - Q1 运行起来了吗: [PRD 可被直接用于 Issue 拆分]
+  - Q2 怎么知道的: [具体检查动作]
+  - Q3 可能假的/占位/不完整的: [3 项自检结论]
 - User Confirmation: [待确认]
 
 ### CONSTRUCTION Phase
@@ -326,16 +334,39 @@ SHIP (发布部署)
 - Issues completed: [N / total N]
 - Per-Issue Review Status: [待记录]
 - Worktree Path: [~/.worktrees/{repo}/{branch}]
+- Runtime Verification:
+  - 代码探针: [diffstat / read 关键文件确认]
+  - 测试探针: [grep 确认非全 skip/todo]
+  - QA 探针: [截图路径 / bug 列表]
+- Result-Driven Acceptance:
+  - Q1 代码运行起来了吗: [核心功能可被调用/访问]
+  - Q2 怎么知道的: [read/exec 的具体输出]
+  - Q3 可能假的/占位/不完整的: [3 项自检结论]
 - User Confirmation: [待确认]
 
 ### TEST Phase
 - Completed At: [待完成]
 - Evidence: [待记录]
+- Runtime Verification:
+  - 测试探针: [grep 确认真实断言输出]
+  - 浏览器探针: [截图路径 / HTTP 状态]
+  - 安全探针: [审计报告具体条目数]
+- Result-Driven Acceptance:
+  - Q1 系统集成运行起来了吗: [端到端可触发]
+  - Q2 怎么知道的: [curl/screenshot/exec 证据]
+  - Q3 可能假的/占位/不完整的: [3 项自检结论]
 - User Confirmation: [待确认]
 
 ### SHIP Phase
 - Completed At: [待完成]
 - Evidence: [待记录]
+- Runtime Verification:
+  - 部署探针: [curl URL 返回 / screenshot]
+  - 金丝雀探针: [实际指标数值]
+- Result-Driven Acceptance:
+  - Q1 生产环境运行起来了吗: [真实用户可访问]
+  - Q2 怎么知道的: [curl/screenshot/canary 具体证据]
+  - Q3 可能假的/占位/不完整的: [3 项自检结论]
 - User Confirmation: [待确认]
 
 ## Pending Decisions
@@ -368,17 +399,38 @@ Agent 自验证通过后自动继续执行。
 □ 当前阶段无 Pending Decision 未解决
 ```
 
+### 运行时验证清单（新增 — 防止占位/假通过）
+
+**产出物存在 ≠ 系统可用。阶段转换前必须验证产出物的真实有效性，而非仅检查文件存在或 exit code=0。**
+
+```
+□ 每个产出物都经过至少一项运行时探针验证（read/grep/exec/screenshot/status probe）
+□ 测试通过 ≠ 功能可用：必须确认测试覆盖的是真实行为，而非 mock 全部行为
+□ 审查通过 ≠ 代码落地：必须抽查 diff 确认关键修改确实存在于文件系统中
+□ 部署成功 ≠ 服务健康：必须验证核心接口/页面返回预期结果
+```
+
+**运行时验证范例（根据阶段选用）**：
+- **文档类产出**：grep 关键字段确认 PRD/Decision 包含具体 Acceptance Criteria，而非空模板
+- **代码类产出**：读取文件确认关键函数/配置确实存在，diffstat > 0
+- **测试类产出**：确认测试日志包含真实断言输出，而非全被 skip/todo
+- **服务类产出**：curl/HTTP 探针确认端口响应预期内容，或 screenshot 确认页面非 500/白屏
+- **安全类产出**：确认 audit 报告包含具体发现条目，而非"未发现"占位
+
 ### 阶段转换协议
 
 ```
 1. Agent 自验证：对照文档检查当前阶段完成度
-2. 若发现遗漏：记录到 state.md，自动回退到遗漏点补齐
-3. 若全部完成：记录完成摘要 + 产出物列表 + 证据记录到 state.md
-4. 自动推进：更新 state.md（标记当前阶段完成，记录证据，设置下一阶段）
-5. 进入下一阶段，继续执行
+2. 运行时探针：对关键产出物执行至少一项非纯存在性检查
+3. 结果导向追问：回答"运行起来了吗？你怎么知道的？"，给出具体证据
+4. 对抗性自检：列出 3 个"此阶段产出物中可能是假的/占位的/不完整的"，并说明排除或确认方式
+5. 若发现遗漏：记录到 state.md，自动回退到遗漏点补齐
+6. 若全部完成：记录完成摘要 + 产出物列表 + 运行时验证证据 + 对抗性自检结论到 state.md
+7. 自动推进：更新 state.md（标记当前阶段完成，记录证据，设置下一阶段）
+8. 进入下一阶段，继续执行
 ```
 
-**严禁**：未经自验证擅自进入下一阶段。
+**严禁**：未经自验证、未经运行时探针、未经对抗性自检擅自进入下一阶段。
 
 ---
 
@@ -587,6 +639,20 @@ Agent 自验证通过后自动继续执行。
 □ 所有决策已记录到 docs/decisions/ 且索引表已更新
 □ state.md 中 INCEPTION Phase Evidence 已记录
 ```
+
+**INCEPTION 运行时验证（防止占位文档）**：
+```
+□ PRD 文件经 grep 确认包含至少 3 条具体 Acceptance Criteria（非空模板）
+□ PRD 经 grep 确认包含 User Stories 或 Implementation Decisions（非占位符）
+□ 技术规格 SPEC 经 grep 确认包含 Data Flow 或 Interface Design 内容
+□ 决策文件经 read 确认每份都包含非空的 Context + Decision + Consequences
+□ 决策索引表 README.md 经 grep 确认包含至少一条决策记录
+```
+
+**结果导向验收**：
+- "PRD 运行起来了吗？" → PRD 可被下游直接用于 Issue 拆分，而非需要补充
+- "你怎么知道的？" → 用 grep/read 确认 PRD 包含具体可执行的验收标准
+- "可能是假的/占位的/不完整的？" → 对抗性自检结论已记录到 state.md Notes
 
 ---
 
@@ -970,6 +1036,15 @@ EOF
 
 **严禁**：在 RED 状态重构。
 
+**TDD 结果导向验收（进入 Review 前必须回答）**：
+```
+Q1: 这个 Issue 的代码运行起来了吗？
+   A: [是/部分] — 通过 read 确认关键函数存在于 [文件] 第 [N] 行 / 通过 exec 运行了 [命令] 得到 [输出]
+
+Q2: 你怎么知道测试覆盖的是真实行为，而非全 mock？
+   A: [测试中有真实数据库读写 / 测试调用了真实 HTTP 端点 / 测试断言验证了具体返回值 xxx]
+```
+
 记录当前 Issue 的 TDD 进度到 state.md。继续下一个测试或自动进入 Review。
 
 ---
@@ -1001,6 +1076,15 @@ EOF
 - 只有 review 通过才能进入下一步
 - **必须**将 review 输出保存到 `.omni-wf/reviews/issue-NNN.md`
 
+**Review 结果导向验收（进入 QA 前必须回答）**：
+```
+Q1: review 发现的关键问题真的被修复了吗？
+   A: [是] — 通过 diff 确认 [文件] 的 [问题描述] 已修改为 [新代码]
+
+Q2: 你怎么知道修复没有引入新问题？
+   A: [重新运行了测试 / 重新执行了 review / read 了修改后的文件确认逻辑正确]
+```
+
 ---
 
 ### 2.5 Per-Issue QA — 前端验证（条件：Issue 涉及前端变更时必须执行）
@@ -1021,6 +1105,15 @@ EOF
 - 只有 QA 通过才能进入下一步
 - **必须**将 QA 报告追加到 `.omni-wf/reviews/issue-NNN.md`
 
+**QA 结果导向验收（进入 Test 前必须回答）**：
+```
+Q1: QA 验证的是真实页面还是静态占位/缓存页面？
+   A: [真实页面] — 通过 screenshot 确认页面 URL 为 [具体 URL]，包含动态内容 [xxx]
+
+Q2: 交互逻辑真的被测试了吗？
+   A: [是] — 通过 [click/type/navigate] 操作验证了 [具体交互]，观察到 [具体状态变化]
+```
+
 ---
 
 ### 2.6 Per-Issue Test — 项目测试（必须）
@@ -1037,14 +1130,88 @@ EOF
 **强制要求**：
 - 失败 → `/investigate` → 修复 → 重新测试
 
+**Test 结果导向验收（进入关闭 Issue 前必须回答）**：
+```
+Q1: 项目测试通过是因为功能正确，还是因为测试太弱/全 mock？
+   A: [功能正确] — 测试日志中包含 [N] 个真实断言，其中 [N] 个涉及真实数据流转，非纯 mock
+
+Q2: 怎么知道没有破坏现有功能？
+   A: [回归测试覆盖了 [N] 个已有用例，全部通过 / 手动验证了 [关键路径] 仍然正常]
+```
+
 ---
 
 ### 2.7 关闭 Issue（只有 2.3-2.6 全部通过后才能执行）
 
 > **入口检查点**：关闭前必须自验证：当前 Issue 的 TDD（2.3）→ Review（2.4）→ QA（2.5，如适用）→ Test（2.6）全部通过。若任一环节缺失，回退到该环节重新执行，不得提前关闭。
 
+#### 2.7.1 结果导向验收（强制 — 关闭前必须回答）
+
+**每个 Issue 关闭前，Agent 必须显式回答以下三个问题，并将答案写入 state.md Notes 和 issue 评论中：**
+
+```
+【结果导向验收】Issue #NNN — [标题]
+
+Q1: 这个切片的功能运行起来了吗？
+   A: [是/否/部分] — 具体证据：[关键接口返回了 xxx / 页面截图显示了 xxx / 测试覆盖了 xxx]
+
+Q2: 你怎么知道的？
+   A: [通过 exec 运行了 xxx / 通过 read 确认了文件 xxx 第 N 行 / 通过 screenshot 看到 xxx]
+
+Q3: 如果用户现在使用这个功能，最可能遇到的 3 个问题是什么？
+   A: 1) [...] 2) [...] 3) [...]
+```
+
+**禁止**：用"测试通过了"代替"运行起来了"。测试通过是必要不充分条件，必须有运行时证据。
+
+#### 2.7.2 对抗性自检（强制 — 关闭前必须执行）
+
+**每个 Issue 关闭前，Agent 必须主动列出 3 个"此 Issue 产出中可能是假的/占位的/不完整的"，并给出排除或确认方式。**
+
+```
+【对抗性自检】Issue #NNN — [标题]
+
+□ 自检项 1: [可能是假的/占位/不完整的具体内容]
+   排除/确认方式: [执行了什么检查来确认它是真的]
+   状态: [CONFIRMED_REAL / CONFIRMED_FAKE / UNCERTAIN — 若 UNCERTAIN 不得关闭 Issue]
+
+□ 自检项 2: [可能是假的/占位的/不完整的具体内容]
+   排除/确认方式: [检查内容]
+   状态: [CONFIRMED_REAL / CONFIRMED_FAKE / UNCERTAIN]
+
+□ 自检项 3: [可能是假的/占位的/不完整的具体内容]
+   排除/确认方式: [检查内容]
+   状态: [CONFIRMED_REAL / CONFIRMED_FAKE / UNCERTAIN]
+```
+
+**对抗性自检提示（按 Issue 类型选用）**：
+- **后端 Issue**：mock 是否替代了真实依赖？错误处理是否只覆盖 happy path？配置值是否 hardcode？
+- **前端 Issue**：截图是否只是静态占位？交互逻辑是否只在单一路径测试？响应式/边界状态是否遗漏？
+- **数据库 Issue**：migration 是否在真实 schema 上验证？回滚脚本是否测试？索引是否真的被使用？
+- **配置/部署 Issue**：环境变量是否在运行时读取？配置文件是否被真实服务加载？端口/域名是否正确？
+
+**禁止关闭条件**：
+- 任一自检项状态为 UNCERTAIN 且未经过验证
+- 自检项全部是"我觉得没问题"等主观表述，没有具体检查动作
+- 结果导向验收的 Q1/Q2 答案为空或仅引用"测试通过"
+
 ```bash
-gh issue close NNN --comment "Completed via omni-wf CONSTRUCTION phase. Review: PASS. QA: [PASS/N/A]. Tests: PASS."
+gh issue close NNN --comment "$(cat <<'EOF'
+Completed via omni-wf CONSTRUCTION phase.
+
+Review: PASS. QA: [PASS/N/A]. Tests: PASS.
+
+【结果导向验收】
+Q1: 运行起来了吗？ [是/否/部分] — [证据]
+Q2: 怎么知道的？ [具体检查动作]
+Q3: 最可能遇到的 3 个问题：1) [...] 2) [...] 3) [...]
+
+【对抗性自检】
+□ 1: [具体内容] — 检查: [动作] — 状态: [CONFIRMED_REAL]
+□ 2: [具体内容] — 检查: [动作] — 状态: [CONFIRMED_REAL]
+□ 3: [具体内容] — 检查: [动作] — 状态: [CONFIRMED_REAL]
+EOF
+)"
 ```
 
 ### 2.8 记录完成证据（每个 Issue 必须）
@@ -1082,6 +1249,21 @@ gh issue close NNN --comment "Completed via omni-wf CONSTRUCTION phase. Review: 
 □ 所有项目测试通过
 □ state.md 中 CONSTRUCTION Phase Evidence 已记录
 ```
+
+**CONSTRUCTION 运行时验证（防止假通过）**：
+```
+□ 对每个关闭的 Issue，抽查 diff/git show 确认关键代码确实存在于文件系统（diffstat > 0）
+□ 对至少 1 个核心 Issue，read 修改后的源文件确认关键函数/接口真实存在
+□ 测试日志经 grep 确认包含真实断言输出（非全 skip/todo），覆盖率 > 0%
+□ 若 HAS_FRONTEND > 0：QA 报告经 grep 确认包含至少 1 张有效截图路径或具体 bug 列表
+□ review 文件经 grep 确认包含具体审查发现（非仅"PASS"两字）
+□ worktree 路径确认存在且包含与主分支不同的真实文件变更
+```
+
+**结果导向验收**：
+- "代码运行起来了吗？" → 核心功能可被调用/访问，而非仅测试通过
+- "你怎么知道的？" → 通过 read/exec 确认文件真实存在且测试/服务有实质性输出
+- "可能是假的/占位的/不完整的？" → 对抗性自检结论已记录到 state.md Notes
 
 ---
 
@@ -1138,6 +1320,14 @@ fi
   - Design audit: [PASS / N/A]
   - Security audit: [PASS / N/A]
   - Bug investigations: [N]
+- Runtime Verification:
+  - 测试输出探针: [grep 确认的关键断言输出摘要]
+  - 浏览器截图探针: [截图路径 / 确认页面非 500/白屏]
+  - 安全审计探针: [审计报告包含的具体发现数]
+- Result-Driven Acceptance:
+  - Q1 系统集成运行起来了吗？ [是/部分/否] — [具体证据]
+  - Q2 怎么知道的？ [curl/screenshot/exec 的具体输出]
+  - Q3 可能是假的/占位的/不完整的？ [3 项自检结论]
 - Auto Advance: true
 ```
 
@@ -1154,6 +1344,19 @@ fi
 □ 无未解决的 Bug
 □ state.md 中 TEST Phase Evidence 已记录
 ```
+
+**TEST 运行时验证（防止测试自嗨）**：
+```
+□ 项目测试 suite 的输出经 grep 确认包含真实测试名（非仅 exit code=0）
+□ 若 HAS_FRONTEND > 0：浏览器截图经确认非 500 错误/白屏/占位图，或 HTTP 探针返回 200 + 预期内容
+□ 若 HAS_SECURITY > 0：安全审计报告经 grep 确认包含具体扫描结果（非空报告或占位符）
+□ Bug 修复经 grep 确认关联 Issue 已关闭，且回归测试日志中相关用例通过
+```
+
+**结果导向验收**：
+- "系统集成运行起来了吗？" → 端到端流程可被真实触发，而非仅单元测试通过
+- "你怎么知道的？" → 通过 exec/screenshot/curl 给出实际运行时证据
+- "可能是假的/占位的/不完整的？" → 对抗性自检结论已记录到 state.md Notes
 
 ---
 
@@ -1210,6 +1413,14 @@ fi
   - /ship: PR #[N] created
   - /land-and-deploy: deployed at [URL]
   - /canary: [健康通过 / 异常]
+- Runtime Verification:
+  - PR diff 探针: [gh pr diff 确认的变更文件数 / 关键变更摘要]
+  - 部署探针: [curl URL 返回状态码 + 内容摘要 / screenshot 确认]
+  - 金丝雀探针: [实际监控指标 / 截图路径]
+- Result-Driven Acceptance:
+  - Q1 生产环境运行起来了吗？ [是] — [核心接口/页面访问证据]
+  - Q2 怎么知道的？ [curl 响应 / screenshot / canary 指标的具体数值]
+  - Q3 可能是假的/占位的/不完整的？ [3 项自检结论]
 - User Confirmation: [待确认]
 ```
 
@@ -1234,6 +1445,20 @@ fi
 □ state.md 中 SHIP Phase Evidence 已记录
 ```
 
+**SHIP 运行时验证（防止假发布）**：
+```
+□ PR 的 diff 经 gh pr diff 确认包含预期文件变更（非空 PR 或仅文档修改）
+□ 部署后的服务经 curl/HTTP 探针确认返回 200 且内容符合预期（非仅"部署脚本成功"）
+□ 若 HAS_FRONTEND > 0：金丝雀截图经确认页面可交互、无控制台报错、非白屏
+□ 若 HAS_DB > 0：数据库迁移经确认已应用（schema 与代码一致）
+□ VERSION 文件/CHANGELOG 经 read 确认已真实更新（非仅 git tag）
+```
+
+**结果导向验收**：
+- "功能在生产环境运行起来了吗？" → 真实用户/探针可访问，而非仅 CI 绿灯
+- "你怎么知道的？" → 给出 curl 响应截图、实际 URL 访问记录或 canary 指标截图
+- "可能是假的/占位的/不完整的？" → 对抗性自检结论已记录到 state.md Notes
+
 ---
 
 ## 状态管理规范
@@ -1257,19 +1482,66 @@ fi
 - [ ] SHIP
 
 ## Phase Completion Evidence
-（每个阶段的完成证据详细记录）
+（每个阶段的完成证据详细记录。每个阶段必须包含：Evidence + Runtime Verification + Result-Driven Acceptance + Adversarial Self-Check）
 
 ### INCEPTION Phase
-...
+- Completed At: ...
+- Evidence: [具体产出物清单]
+- Runtime Verification:
+  - PRD 探针: [grep 确认的 Acceptance Criteria 数量 / 非空字段]
+  - SPEC 探针: [grep 确认的 Data Flow/Interface Design 存在性]
+  - Decision 探针: [read 确认的非空 Context+Decision+Consequences]
+- Result-Driven Acceptance:
+  - Q1: PRD 可直接用于 Issue 拆分吗？ [是/否] — [证据]
+  - Q2: 怎么知道的？ [read/grep 的具体输出]
+- Adversarial Self-Check:
+  - □ 1: [可能假的/占位/不完整的] — 检查: [动作] — 状态: [CONFIRMED_REAL]
+  - □ 2: [...] — 检查: [...] — 状态: [...]
+  - □ 3: [...] — 检查: [...] — 状态: [...]
 
 ### CONSTRUCTION Phase
-...
+- Completed At: ...
+- Evidence: [Issues 完成清单 / review 记录路径]
+- Runtime Verification:
+  - 代码探针: [diffstat / read 关键文件确认]
+  - 测试探针: [grep 确认非全 skip/todo]
+  - QA 探针: [截图路径 / bug 列表]
+- Result-Driven Acceptance:
+  - Q1: 核心功能可被调用/访问吗？ [是/部分/否] — [证据]
+  - Q2: 怎么知道的？ [read/exec 的具体输出]
+- Adversarial Self-Check:
+  - □ 1: [...] — 检查: [...] — 状态: [...]
+  - □ 2: [...] — 检查: [...] — 状态: [...]
+  - □ 3: [...] — 检查: [...] — 状态: [...]
 
 ### TEST Phase
-...
+- Completed At: ...
+- Evidence: [测试报告 / 截图路径 / 审计报告]
+- Runtime Verification:
+  - 测试探针: [grep 确认的真实断言输出]
+  - 浏览器探针: [截图路径 / HTTP 状态码 / 响应内容摘要]
+  - 安全探针: [审计报告具体条目数]
+- Result-Driven Acceptance:
+  - Q1: 端到端流程可被真实触发吗？ [是/部分/否] — [证据]
+  - Q2: 怎么知道的？ [curl/screenshot/exec 证据]
+- Adversarial Self-Check:
+  - □ 1: [...] — 检查: [...] — 状态: [...]
+  - □ 2: [...] — 检查: [...] — 状态: [...]
+  - □ 3: [...] — 检查: [...] — 状态: [...]
 
 ### SHIP Phase
-...
+- Completed At: ...
+- Evidence: [PR 链接 / 部署 URL / canary 报告]
+- Runtime Verification:
+  - 部署探针: [curl URL 返回状态码 + 内容摘要 / screenshot]
+  - 金丝雀探针: [实际监控指标数值]
+- Result-Driven Acceptance:
+  - Q1: 真实用户/探针可访问生产功能吗？ [是/否] — [证据]
+  - Q2: 怎么知道的？ [curl/screenshot/canary 具体数值]
+- Adversarial Self-Check:
+  - □ 1: [...] — 检查: [...] — 状态: [...]
+  - □ 2: [...] — 检查: [...] — 状态: [...]
+  - □ 3: [...] — 检查: [...] — 状态: [...]
 
 ## PRDs
 - docs/prds/NNN-{title}.md — [状态]
