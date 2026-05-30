@@ -140,12 +140,33 @@ Omni Workflow 的运行时就是 AI 代理本身。工作流是**提示词管道
 
 **执行顺序原则**：先创建/切换到 worktree，所有后续目录创建、文件读取、状态检测都在 worktree 中执行。主目录仅用于 `.gitignore` 检查。
 
+**分支命名规则**：
+- AI agent 应该根据用户需求自动生成分支名
+- 分支名格式：`feat/<descriptive-name>`
+- 示例：用户说"添加用户认证功能" → 分支名 `feat/user-auth`
+- 示例：用户说"修复登录 bug" → 分支名 `feat/fix-login-bug`
+- 如果用户没有明确需求，使用默认命名：`feat/omni-wf-<timestamp>`
+
+在执行下面的脚本前，AI agent 应该先设置 `_BRANCH` 变量：
+
+```bash
+# AI agent 在执行前设置分支名（根据用户需求）
+_BRANCH="feat/<descriptive-name>"  # 例如：feat/user-auth, feat/fix-login-bug
+```
+
 ```bash
 # ========== STEP 1: 探测 repo 基础信息（在主目录执行） ==========
-_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+_CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 
-echo "BRANCH: $_BRANCH"
+# 如果 _BRANCH 未设置，使用默认命名
+if [ -z "$_BRANCH" ]; then
+  _TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+  _BRANCH="feat/omni-wf-$_TIMESTAMP"
+fi
+
+echo "CURRENT_BRANCH: $_CURRENT_BRANCH"
+echo "NEW_BRANCH: $_BRANCH"
 echo "REPO_ROOT: $_ROOT"
 
 # ========== STEP 2: .gitignore 检查（在主目录执行，无需在 worktree 中） ==========
@@ -169,18 +190,24 @@ fi
 _WORKTREE_BASE="$HOME/.worktrees"
 if [ -n "$_ROOT" ] && [ "$_ROOT" != "." ]; then
   _REPO_NAME=$(basename "$_ROOT")
+  # 替换分支名中的斜杠，仅用于目录命名
   _SAFE_BRANCH=$(echo "$_BRANCH" | tr '/' '-')
   _WORKTREE_PATH="$_WORKTREE_BASE/$_REPO_NAME/$_SAFE_BRANCH"
 
   if [ ! -d "$_WORKTREE_PATH" ]; then
     mkdir -p "$(dirname "$_WORKTREE_PATH")"
-    git worktree add "$_WORKTREE_PATH" "$_BRANCH"
+    
+    # 基于当前分支（通常是 main）创建新的 feat 分支
+    # 这样可以避免为同一分支创建多个 worktree 的问题
+    git worktree add -b "$_BRANCH" "$_WORKTREE_PATH" "$_CURRENT_BRANCH"
+    
     echo "WORKTREE_CREATED: yes"
   else
     echo "WORKTREE_EXISTS: yes"
   fi
 
-  git worktree list | grep "$_WORKTREE_PATH" > /dev/null && echo "WORKTREE_VALID: yes" || echo "WORKTREE_VALID: no"
+  # 【优化点 2】精确匹配 worktree 路径，防止因包含子字符串错判
+  git worktree list | grep -F "$_WORKTREE_PATH" > /dev/null && echo "WORKTREE_VALID: yes" || echo "WORKTREE_VALID: no"
 
   # 切换到 worktree — 所有后续操作都在此目录中执行
   cd "$_WORKTREE_PATH" || exit 1
